@@ -7,6 +7,8 @@ void main() {
 }
 
 class PacketAnalyzerApp extends StatelessWidget {
+  const PacketAnalyzerApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -174,6 +176,8 @@ class PacketService {
 
 // Main Screen
 class PacketAnalyzerScreen extends StatefulWidget {
+  const PacketAnalyzerScreen({super.key});
+
   @override
   _PacketAnalyzerScreenState createState() => _PacketAnalyzerScreenState();
 }
@@ -183,7 +187,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   bool _isCapturing = false;
   bool _isRooted = false;
   bool _useRootedMode = false;
-  List<PacketInfo> _packets = [];
+  final List<PacketInfo> _packets = [];
   List<ProtocolStats> _stats = [];
   String _selectedProtocolFilter = 'ALL';
 
@@ -675,7 +679,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                                       ),
                                       SizedBox(width: 8),
                                       Text(
-                                        '${_formatBytes(stat.totalBytes)}',
+                                        _formatBytes(stat.totalBytes),
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
@@ -928,7 +932,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       context: context,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Container(
+        child: SizedBox(
           width: MediaQuery.of(context).size.width * 0.9,
           child: Column(
             mainAxisSize: MainAxisSize.min,
