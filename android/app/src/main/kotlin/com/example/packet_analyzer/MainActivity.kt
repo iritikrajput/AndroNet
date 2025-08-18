@@ -35,6 +35,11 @@ class MainActivity: FlutterActivity() {
                 "isDeviceRooted" -> {
                     result.success(nativeInterface.isDeviceRooted())
                 }
+                "clearPackets" -> {
+                    // TODO: Clear packets in your native code if needed
+                    nativeInterface.clearPackets() // If you have such a method
+                    result.success(null)
+                }
                 else -> {
                     result.notImplemented()
                 }
