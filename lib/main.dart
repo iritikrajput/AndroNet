@@ -17,7 +17,7 @@ class PacketAnalyzerApp extends StatelessWidget {
         primarySwatch: Colors.indigo,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: PacketAnalyzerScreen(),
+      home: const PacketAnalyzerScreen(),
     );
   }
 }
@@ -209,12 +209,12 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   void _initializeAnimations() {
     _statusAnimationController = AnimationController(
-      duration: Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
 
     _statsAnimationController = AnimationController(
-      duration: Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
 
@@ -742,9 +742,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
+  // FIXED: Removed inner Expanded widget that was causing layout issues
   Widget _buildPacketList() {
     final filteredPackets = _filteredPackets;
-
     return Card(
       margin: EdgeInsets.all(12),
       elevation: 4,
@@ -791,7 +791,8 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               ],
             ),
           ),
-          Expanded(
+          // FIXED: Use Flexible instead of Expanded to avoid nested expansion conflicts
+          Flexible(
             child: filteredPackets.isEmpty
                 ? Container(
                     padding: EdgeInsets.all(40),
@@ -826,6 +827,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     ),
                   )
                 : ListView.builder(
+                    shrinkWrap: true, // Added to prevent overflow
                     itemCount: filteredPackets.length,
                     itemBuilder: (context, index) {
                       final packet = filteredPackets[index];
@@ -934,6 +936,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: SizedBox(
           width: MediaQuery.of(context).size.width * 0.9,
+          height:
+              MediaQuery.of(context).size.height *
+              0.8, // Added height constraint
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -995,93 +1000,96 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                 ),
               ),
               // Content
-              Container(
-                padding: EdgeInsets.all(16),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildDetailRow(
-                        'Source',
-                        '${packet.sourceIp}:${packet.sourcePort}',
-                        Icons.arrow_upward,
-                      ),
-                      _buildDetailRow(
-                        'Destination',
-                        '${packet.destinationIp}:${packet.destinationPort}',
-                        Icons.arrow_downward,
-                      ),
-                      _buildDetailRow(
-                        'Protocol',
-                        packet.protocol,
-                        Icons.language,
-                      ),
-                      _buildDetailRow(
-                        'Size',
-                        '${packet.size} bytes',
-                        Icons.data_usage,
-                      ),
-                      _buildDetailRow(
-                        'Timestamp',
-                        packet.timestamp,
-                        Icons.access_time,
-                      ),
-                      SizedBox(height: 16),
-                      if (packet.payload.isNotEmpty) ...[
-                        Text(
-                          'Payload Data:',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade700,
-                          ),
+              Expanded(
+                // Added Expanded to prevent overflow
+                child: Container(
+                  padding: EdgeInsets.all(16),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildDetailRow(
+                          'Source',
+                          '${packet.sourceIp}:${packet.sourcePort}',
+                          Icons.arrow_upward,
                         ),
-                        SizedBox(height: 8),
-                        Container(
-                          width: double.infinity,
-                          padding: EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: SelectableText(
-                            packet.payload,
+                        _buildDetailRow(
+                          'Destination',
+                          '${packet.destinationIp}:${packet.destinationPort}',
+                          Icons.arrow_downward,
+                        ),
+                        _buildDetailRow(
+                          'Protocol',
+                          packet.protocol,
+                          Icons.language,
+                        ),
+                        _buildDetailRow(
+                          'Size',
+                          '${packet.size} bytes',
+                          Icons.data_usage,
+                        ),
+                        _buildDetailRow(
+                          'Timestamp',
+                          packet.timestamp,
+                          Icons.access_time,
+                        ),
+                        SizedBox(height: 16),
+                        if (packet.payload.isNotEmpty) ...[
+                          Text(
+                            'Payload Data:',
                             style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                              color: Colors.grey.shade800,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade700,
                             ),
                           ),
-                        ),
-                      ] else ...[
-                        Container(
-                          width: double.infinity,
-                          padding: EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: Colors.grey.shade400,
-                                size: 32,
+                          SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: SelectableText(
+                              packet.payload,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                                color: Colors.grey.shade800,
                               ),
-                              SizedBox(height: 8),
-                              Text(
-                                'No payload data available',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 14,
+                            ),
+                          ),
+                        ] else ...[
+                          Container(
+                            width: double.infinity,
+                            padding: EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: Colors.grey.shade400,
+                                  size: 32,
                                 ),
-                              ),
-                            ],
+                                SizedBox(height: 8),
+                                Text(
+                                  'No payload data available',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),

@@ -15,15 +15,82 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// Global JNI references - CRITICAL FOR FIXING ClassNotFoundException
+static JavaVM *g_javaVM = nullptr;
+static jclass g_nativeInterfaceClass = nullptr;
+static jmethodID g_sendPacketMethod = nullptr;
+static jmethodID g_sendStatsMethod = nullptr;
+static jmethodID g_sendStatusMethod = nullptr;
+
 // Forward declarations
 void sendPacketToJava(const PacketInfo &packet);
 
 // Global variables
-static JavaVM *g_vm = nullptr;
 static std::atomic<bool> g_capture_running{false};
 static std::thread g_capture_thread;
 static int g_tun_fd = -1;
 static pcap_t *g_pcap_handle = nullptr;
+
+// JNI_OnLoad - Called when library is loaded - FIXES ClassNotFoundException
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
+{
+    g_javaVM = vm;
+    JNIEnv *env;
+
+    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK)
+    {
+        LOGE("JNI_OnLoad: Failed to get JNI environment");
+        return JNI_ERR;
+    }
+
+    // Find and cache the NativeInterface class - CRITICAL FIX
+    jclass localRef = env->FindClass("com/example/packet_analyzer/NativeInterface");
+    if (localRef == nullptr)
+    {
+        LOGE("JNI_OnLoad: Failed to find NativeInterface class");
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return JNI_ERR;
+    }
+
+    // Create global reference to prevent garbage collection
+    g_nativeInterfaceClass = reinterpret_cast<jclass>(env->NewGlobalRef(localRef));
+    env->DeleteLocalRef(localRef);
+
+    // Cache method IDs
+    g_sendPacketMethod = env->GetStaticMethodID(g_nativeInterfaceClass, "sendPacketToFlutter",
+                                                "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)V");
+
+    g_sendStatsMethod = env->GetStaticMethodID(g_nativeInterfaceClass, "sendStatsToFlutter",
+                                               "(Ljava/lang/String;)V");
+
+    g_sendStatusMethod = env->GetStaticMethodID(g_nativeInterfaceClass, "sendStatusUpdate",
+                                                "(ZLjava/lang/String;)V");
+
+    if (g_sendPacketMethod == nullptr || g_sendStatsMethod == nullptr || g_sendStatusMethod == nullptr)
+    {
+        LOGE("JNI_OnLoad: Failed to find one or more method IDs");
+        return JNI_ERR;
+    }
+
+    LOGD("JNI_OnLoad: Native library loaded successfully");
+    return JNI_VERSION_1_6;
+}
+
+// JNI_OnUnload - Called when library is unloaded
+JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved)
+{
+    JNIEnv *env;
+    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) == JNI_OK)
+    {
+        if (g_nativeInterfaceClass != nullptr)
+        {
+            env->DeleteGlobalRef(g_nativeInterfaceClass);
+            g_nativeInterfaceClass = nullptr;
+        }
+    }
+    LOGD("JNI_OnUnload: Native library unloaded");
+}
 
 // VPN packet processing function
 void processVpnPackets()
@@ -125,14 +192,72 @@ void processRootedCapture()
     LOGD("Rooted packet capture stopped");
 }
 
-// JNI function implementations
-extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
+// Helper function to send packet data to Java/Flutter - COMPLETELY REWRITTEN FOR THREAD SAFETY
+void sendPacketToJava(const PacketInfo &packet)
 {
-    g_vm = vm;
-    LOGD("Native library loaded");
-    return JNI_VERSION_1_6;
+    if (!g_javaVM || !g_nativeInterfaceClass || !g_sendPacketMethod)
+    {
+        LOGE("sendPacketToJava: JNI not properly initialized");
+        return;
+    }
+
+    JNIEnv *env;
+    bool needDetach = false;
+
+    // Get JNI environment for current thread
+    int getEnvStat = g_javaVM->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6);
+    if (getEnvStat == JNI_EDETACHED)
+    {
+        // Thread not attached, attach it
+        if (g_javaVM->AttachCurrentThread(&env, nullptr) != 0)
+        {
+            LOGE("sendPacketToJava: Failed to attach current thread");
+            return;
+        }
+        needDetach = true;
+    }
+    else if (getEnvStat == JNI_EVERSION)
+    {
+        LOGE("sendPacketToJava: Unsupported JNI version");
+        return;
+    }
+
+    // Create Java strings
+    jstring sourceIp = env->NewStringUTF(packet.source_ip.c_str());
+    jstring destIp = env->NewStringUTF(packet.dest_ip.c_str());
+    jstring protocol = env->NewStringUTF(packet.protocol.c_str());
+    jstring timestamp = env->NewStringUTF(PacketParser::getCurrentTimestamp().c_str());
+    jstring payload = env->NewStringUTF(packet.payload.c_str());
+
+    // Call the cached method using global class reference
+    env->CallStaticVoidMethod(g_nativeInterfaceClass, g_sendPacketMethod,
+                              sourceIp, destIp,
+                              (jint)packet.source_port, (jint)packet.dest_port,
+                              protocol, (jint)packet.size, timestamp, payload);
+
+    // Clean up local references
+    env->DeleteLocalRef(sourceIp);
+    env->DeleteLocalRef(destIp);
+    env->DeleteLocalRef(protocol);
+    env->DeleteLocalRef(timestamp);
+    env->DeleteLocalRef(payload);
+
+    // Check for exceptions
+    if (env->ExceptionCheck())
+    {
+        LOGE("sendPacketToJava: Exception occurred");
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+
+    // Detach thread if we attached it
+    if (needDetach)
+    {
+        g_javaVM->DetachCurrentThread();
+    }
 }
 
+// JNI function implementations
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_packet_1analyzer_NativeInterface_initializeVpnCapture(JNIEnv *env, jobject thiz, jint fd)
 {
@@ -251,62 +376,6 @@ Java_com_example_packet_1analyzer_NativeInterface_exportPackets(JNIEnv *env, job
     }
 
     return env->NewStringUTF(export_data.c_str());
-}
-
-// Helper function to send packet data to Java/Flutter
-void sendPacketToJava(const PacketInfo &packet)
-{
-    if (!g_vm)
-    {
-        LOGE("JavaVM not available");
-        return;
-    }
-
-    JNIEnv *env;
-    if (g_vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-    {
-        if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK)
-        {
-            LOGE("Failed to attach current thread");
-            return;
-        }
-    }
-
-    jclass cls = env->FindClass("com/example/packet_analyzer/NativeInterface");
-    if (!cls)
-    {
-        LOGE("Could not find NativeInterface class");
-        return;
-    }
-
-    jmethodID method = env->GetStaticMethodID(cls, "sendPacketToFlutter",
-                                              "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)V");
-
-    if (method)
-    {
-        jstring sourceIp = env->NewStringUTF(packet.source_ip.c_str());
-        jstring destIp = env->NewStringUTF(packet.dest_ip.c_str());
-        jstring protocol = env->NewStringUTF(packet.protocol.c_str());
-        jstring timestamp = env->NewStringUTF(PacketParser::getCurrentTimestamp().c_str());
-        jstring payload = env->NewStringUTF(packet.payload.c_str());
-
-        env->CallStaticVoidMethod(cls, method, sourceIp, destIp,
-                                  (jint)packet.source_port, (jint)packet.dest_port,
-                                  protocol, timestamp, payload);
-
-        // Clean up local references
-        env->DeleteLocalRef(sourceIp);
-        env->DeleteLocalRef(destIp);
-        env->DeleteLocalRef(protocol);
-        env->DeleteLocalRef(timestamp);
-        env->DeleteLocalRef(payload);
-    }
-    else
-    {
-        LOGE("Could not find sendPacketToFlutter method");
-    }
-
-    env->DeleteLocalRef(cls);
 }
 
 // Additional utility functions
