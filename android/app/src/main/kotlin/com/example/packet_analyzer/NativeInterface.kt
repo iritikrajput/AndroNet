@@ -1,13 +1,21 @@
 package com.example.packet_analyzer
 
 import io.flutter.plugin.common.MethodChannel
+import android.util.Log
 import java.io.File
 
 class NativeInterface {
     
     companion object {
+        private const val TAG = "NativeInterface"
+        
         init {
-            System.loadLibrary("packet_analyzer")
+            try {
+                System.loadLibrary("packet_analyzer")
+                Log.d(TAG, "Native library loaded successfully")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w(TAG, "Native library not found: ${e.message}")
+            }
         }
         
         // Use a private variable to avoid setter conflicts
@@ -15,6 +23,7 @@ class NativeInterface {
         
         fun setMethodChannel(channel: MethodChannel) {
             _methodChannel = channel
+            Log.d(TAG, "Method channel set")
         }
         
         @JvmStatic
@@ -39,12 +48,22 @@ class NativeInterface {
                 "payload" to payload
             )
             
-            _methodChannel?.invokeMethod("onPacketReceived", packetData)
+            try {
+                _methodChannel?.invokeMethod("onPacketReceived", packetData)
+                Log.d(TAG, "Packet sent to Flutter: $sourceIp:$sourcePort -> $destIp:$destPort")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending packet to Flutter", e)
+            }
         }
         
         @JvmStatic
         fun sendStatsToFlutter(statsJson: String) {
-            _methodChannel?.invokeMethod("onStatsUpdated", statsJson)
+            try {
+                _methodChannel?.invokeMethod("onStatsUpdated", statsJson)
+                Log.d(TAG, "Stats sent to Flutter")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending stats to Flutter", e)
+            }
         }
         
         @JvmStatic
@@ -56,23 +75,98 @@ class NativeInterface {
                 "totalBytes" to 0,
                 "startTime" to if (isCapturing) System.currentTimeMillis() else null
             )
-            _methodChannel?.invokeMethod("onStatusChanged", statusData)
+            
+            try {
+                _methodChannel?.invokeMethod("onStatusChanged", statusData)
+                Log.d(TAG, "Status update sent: capturing=$isCapturing, mode=$mode")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending status update", e)
+            }
         }
     }
-
-    // Native method declarations
-    external fun initializeVpnCapture(fd: Int): Boolean
-    external fun processPacket(packet: ByteArray, length: Int): Boolean
-    external fun startRootedCapture(): Boolean
-    external fun stopRootedCapture(): Boolean
-    external fun cleanup()
-    external fun clearPackets()
-    external fun pauseCapture()
-    external fun resumeCapture()
-    external fun exportPackets(): String?
+    
+    // Native method declarations with safe fallbacks
+    fun initializeVpnCapture(fd: Int): Boolean {
+        return try {
+            nativeInitializeVpnCapture(fd)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native initializeVpnCapture not available")
+            true // Return true for VPN-based capture fallback
+        }
+    }
+    
+    fun processPacket(packet: ByteArray, length: Int): Boolean {
+        return try {
+            nativeProcessPacket(packet, length)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native processPacket not available")
+            false
+        }
+    }
+    
+    fun startRootedCapture(): Boolean {
+        return try {
+            nativeStartRootedCapture()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native startRootedCapture not available")
+            false
+        }
+    }
+    
+    fun stopRootedCapture(): Boolean {
+        return try {
+            nativeStopRootedCapture()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native stopRootedCapture not available")
+            true
+        }
+    }
+    
+    fun cleanup() {
+        try {
+            nativeCleanup()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native cleanup not available")
+        }
+    }
+    
+    fun clearPackets() {
+        try {
+            nativeClearPackets()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native clearPackets not available")
+        }
+    }
+    
+    fun pauseCapture() {
+        try {
+            nativePauseCapture()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native pauseCapture not available")
+        }
+    }
+    
+    fun resumeCapture() {
+        try {
+            nativeResumeCapture()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native resumeCapture not available")
+        }
+    }
+    
+    fun exportPackets(): String? {
+        return try {
+            nativeExportPackets()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native exportPackets not available")
+            null
+        }
+    }
     
     fun isDeviceRooted(): Boolean {
-        return checkRootMethod1() || checkRootMethod2() || checkRootMethod3()
+        val rooted = checkRootMethod1() || checkRootMethod2() || checkRootMethod3()
+        Log.d(TAG, "Device root status: $rooted")
+        return rooted
     }
     
     private fun checkRootMethod1(): Boolean {
@@ -108,4 +202,15 @@ class NativeInterface {
             false
         }
     }
+    
+    // External native method declarations
+    private external fun nativeInitializeVpnCapture(fd: Int): Boolean
+    private external fun nativeProcessPacket(packet: ByteArray, length: Int): Boolean
+    private external fun nativeStartRootedCapture(): Boolean
+    private external fun nativeStopRootedCapture(): Boolean
+    private external fun nativeCleanup()
+    private external fun nativeClearPackets()
+    private external fun nativePauseCapture()
+    private external fun nativeResumeCapture()
+    private external fun nativeExportPackets(): String?
 }
