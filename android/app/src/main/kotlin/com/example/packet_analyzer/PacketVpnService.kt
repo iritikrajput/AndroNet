@@ -102,50 +102,103 @@ class PacketVpnService : VpnService() {
             // Basic IP packet validation
             if (length < 20) return
             
-            // Check IP version - FIXED: Proper byte access
-            val firstByte = buffer[0]
+            // Find the actual IP header start (handle VPN encapsulation)
+            var ipHeaderStart = 0
+            
+            // Look for IPv4 header signature (version 4)
+            for (i in 0 until minOf(length - 20, 10)) {
+                val version = (buffer[i].toInt() and 0xF0) shr 4
+                if (version == 4) {
+                    ipHeaderStart = i
+                    break
+                }
+            }
+            
+            // Verify we found a valid IP header
+            if (ipHeaderStart + 20 > length) return
+            
+            // Check IP version
+            val firstByte = buffer[ipHeaderStart]
             val version = (firstByte.toInt() and 0xF0) shr 4
             if (version != 4) return
             
-            // Get header length - FIXED: Proper byte handling
+            // Get header length (in 32-bit words)
             val ihl = firstByte.toInt() and 0x0F
             val headerLength = ihl * 4
-            if (length < headerLength) return
+            if (ipHeaderStart + headerLength > length) return
             
-            // Extract protocol - FIXED: Direct byte access
-            val protocolByte = buffer[11]
-            val protocol = protocolByte.toInt() and 0xFF
+            // Extract protocol from byte 9 in IP header
+            val protocol = buffer[ipHeaderStart + 9].toInt() and 0xFF
             
-            // FIXED: Correct IP address parsing
-            val sourceIp = "${buffer[12].toInt() and 0xFF}.${buffer[13].toInt() and 0xFF}.${buffer[14].toInt() and 0xFF}.${buffer[15].toInt() and 0xFF}"
-            val destIp = "${buffer[16].toInt() and 0xFF}.${buffer[17].toInt() and 0xFF}.${buffer[18].toInt() and 0xFF}.${buffer[19].toInt() and 0xFF}"
+            // FIXED: Correct IP address parsing with proper offset
+            val sourceIp = String.format("%d.%d.%d.%d",
+                buffer[ipHeaderStart + 12].toInt() and 0xFF,
+                buffer[ipHeaderStart + 13].toInt() and 0xFF,
+                buffer[ipHeaderStart + 14].toInt() and 0xFF,
+                buffer[ipHeaderStart + 15].toInt() and 0xFF
+            )
+            
+            val destIp = String.format("%d.%d.%d.%d",
+                buffer[ipHeaderStart + 16].toInt() and 0xFF,
+                buffer[ipHeaderStart + 17].toInt() and 0xFF,
+                buffer[ipHeaderStart + 18].toInt() and 0xFF,
+                buffer[ipHeaderStart + 19].toInt() and 0xFF
+            )
             
             var sourcePort = 0
             var destPort = 0
             var protocolName = "Unknown"
             
-            // FIXED: Port parsing with proper bounds checking
+            val transportHeaderStart = ipHeaderStart + headerLength
+            
+            // Proper protocol identification and port extraction
             when (protocol) {
                 6 -> { // TCP
                     protocolName = "TCP"
-                    if (length >= headerLength + 4) {
-                        sourcePort = ((buffer[headerLength].toInt() and 0xFF) shl 8) or 
-                                    (buffer[headerLength + 1].toInt() and 0xFF)
-                        destPort = ((buffer[headerLength + 2].toInt() and 0xFF) shl 8) or 
-                                  (buffer[headerLength + 3].toInt() and 0xFF)
+                    if (transportHeaderStart + 4 <= length) {
+                        sourcePort = ((buffer[transportHeaderStart].toInt() and 0xFF) shl 8) or 
+                                    (buffer[transportHeaderStart + 1].toInt() and 0xFF)
+                        destPort = ((buffer[transportHeaderStart + 2].toInt() and 0xFF) shl 8) or 
+                                  (buffer[transportHeaderStart + 3].toInt() and 0xFF)
                     }
                 }
                 17 -> { // UDP
                     protocolName = "UDP"
-                    if (length >= headerLength + 4) {
-                        sourcePort = ((buffer[headerLength].toInt() and 0xFF) shl 8) or 
-                                    (buffer[headerLength + 1].toInt() and 0xFF)
-                        destPort = ((buffer[headerLength + 2].toInt() and 0xFF) shl 8) or 
-                                  (buffer[headerLength + 3].toInt() and 0xFF)
+                    if (transportHeaderStart + 4 <= length) {
+                        sourcePort = ((buffer[transportHeaderStart].toInt() and 0xFF) shl 8) or 
+                                    (buffer[transportHeaderStart + 1].toInt() and 0xFF)
+                        destPort = ((buffer[transportHeaderStart + 2].toInt() and 0xFF) shl 8) or 
+                                  (buffer[transportHeaderStart + 3].toInt() and 0xFF)
                     }
                 }
-                1 -> protocolName = "ICMP"
-                else -> protocolName = "Proto-$protocol"
+                1 -> { // ICMP
+                    protocolName = "ICMP"
+                    // ICMP doesn't have ports, leave as 0
+                }
+                else -> {
+                    protocolName = "Proto-$protocol"
+                }
+            }
+            
+            // Enhanced protocol detection for common services
+            if (protocol == 17 && (sourcePort == 53 || destPort == 53)) {
+                protocolName = "DNS"
+            } else if (protocol == 6 && (sourcePort == 443 || destPort == 443)) {
+                protocolName = "HTTPS"
+            } else if (protocol == 6 && (sourcePort == 80 || destPort == 80)) {
+                protocolName = "HTTP"
+            } else if (protocol == 6 && (sourcePort == 853 || destPort == 853)) {
+                protocolName = "DNS-TLS"
+            } else if (protocol == 6 && (sourcePort == 21 || destPort == 21)) {
+                protocolName = "FTP"
+            } else if (protocol == 6 && (sourcePort == 22 || destPort == 22)) {
+                protocolName = "SSH"
+            } else if (protocol == 6 && (sourcePort == 25 || destPort == 25)) {
+                protocolName = "SMTP"
+            } else if (protocol == 17 && (sourcePort == 123 || destPort == 123)) {
+                protocolName = "NTP"
+            } else if (protocol == 17 && (sourcePort == 67 || destPort == 67 || sourcePort == 68 || destPort == 68)) {
+                protocolName = "DHCP"
             }
             
             // Create packet info

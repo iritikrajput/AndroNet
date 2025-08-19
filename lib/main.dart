@@ -1036,6 +1036,8 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         return Colors.teal;
       case 'ICMP':
         return Colors.red;
+      case 'PROTOCOL':
+        return Colors.brown;
       default:
         return Colors.grey;
     }
