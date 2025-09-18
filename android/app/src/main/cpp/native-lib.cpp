@@ -1,416 +1,245 @@
 #include <jni.h>
 #include <string>
 #include <android/log.h>
+
+// Logging macros
+#define LOG_TAG "PacketAnalyzer"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Standard + networking headers
+#include <cstring>
+#include <cstdlib>
+#include <cerrno>
 #include <unistd.h>
-#include <pcap/pcap.h>
-#include <thread>
-#include <atomic>
-#include <errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <fcntl.h>
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
 
 #include "packet_parser.h"
 #include "session_manager.h"
 #include "socket_forwarder.h"
 
-#define TAG "PacketAnalyzer"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+// ---- Globals ----
+static bool g_capture_running = false;
+static JavaVM *g_vm = nullptr;
+static jobject g_callbackObj = nullptr;
 
-// Global JNI references - CRITICAL FOR FIXING ClassNotFoundException
-static JavaVM *g_javaVM = nullptr;
-static jclass g_nativeInterfaceClass = nullptr;
-static jmethodID g_sendPacketMethod = nullptr;
-static jmethodID g_sendStatsMethod = nullptr;
-static jmethodID g_sendStatusMethod = nullptr;
-
-// Forward declarations
-void sendPacketToJava(const PacketInfo &packet);
-
-// Global variables
-static std::atomic<bool> g_capture_running{false};
-static std::thread g_capture_thread;
-static int g_tun_fd = -1;
-static pcap_t *g_pcap_handle = nullptr;
-
-// JNI_OnLoad - Called when library is loaded - FIXES ClassNotFoundException
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
+// ---- JNI lifecycle ----
+jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
-    g_javaVM = vm;
-    JNIEnv *env;
-
-    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK)
-    {
-        LOGE("JNI_OnLoad: Failed to get JNI environment");
-        return JNI_ERR;
-    }
-
-    // Find and cache the NativeInterface class - CRITICAL FIX
-    jclass localRef = env->FindClass("com/example/packet_analyzer/NativeInterface");
-    if (localRef == nullptr)
-    {
-        LOGE("JNI_OnLoad: Failed to find NativeInterface class");
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-        return JNI_ERR;
-    }
-
-    // Create global reference to prevent garbage collection
-    g_nativeInterfaceClass = reinterpret_cast<jclass>(env->NewGlobalRef(localRef));
-    env->DeleteLocalRef(localRef);
-
-    // Cache method IDs
-    g_sendPacketMethod = env->GetStaticMethodID(g_nativeInterfaceClass, "sendPacketToFlutter",
-                                                "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)V");
-
-    g_sendStatsMethod = env->GetStaticMethodID(g_nativeInterfaceClass, "sendStatsToFlutter",
-                                               "(Ljava/lang/String;)V");
-
-    g_sendStatusMethod = env->GetStaticMethodID(g_nativeInterfaceClass, "sendStatusUpdate",
-                                                "(ZLjava/lang/String;)V");
-
-    if (g_sendPacketMethod == nullptr || g_sendStatsMethod == nullptr || g_sendStatusMethod == nullptr)
-    {
-        LOGE("JNI_OnLoad: Failed to find one or more method IDs");
-        return JNI_ERR;
-    }
-
-    LOGD("JNI_OnLoad: Native library loaded successfully");
+    g_vm = vm;
     return JNI_VERSION_1_6;
 }
 
-// JNI_OnUnload - Called when library is unloaded
-JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved)
+// Called from Java to set callback object
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_packet_1analyzer_NativeInterface_setPacketCallback(JNIEnv *env, jobject thiz, jobject callback)
 {
-    JNIEnv *env;
-    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) == JNI_OK)
+    if (g_callbackObj != nullptr)
     {
-        if (g_nativeInterfaceClass != nullptr)
-        {
-            env->DeleteGlobalRef(g_nativeInterfaceClass);
-            g_nativeInterfaceClass = nullptr;
-        }
+        env->DeleteGlobalRef(g_callbackObj);
+        g_callbackObj = nullptr;
     }
-    LOGD("JNI_OnUnload: Native library unloaded");
+    g_callbackObj = env->NewGlobalRef(callback);
 }
 
-// VPN packet processing function
-void processVpnPackets()
+// ---- Helper: send packet back to Java ----
+void sendPacketToJava(const PacketInfo &pkt)
 {
-    uint8_t buffer[4096];
-
-    LOGD("Starting VPN packet processing thread");
-
-    while (g_capture_running && g_tun_fd != -1)
-    {
-        ssize_t length = read(g_tun_fd, buffer, sizeof(buffer));
-
-        if (length > 0)
-        {
-            PacketInfo packet = PacketParser::parsePacket(buffer, length);
-
-            if (!packet.protocol.empty())
-            {
-                // Update statistics
-                SessionManager::getInstance().updateProtocolStats(packet.protocol, packet.size);
-
-                // Send to Java/Flutter
-                sendPacketToJava(packet);
-
-                // Forward packet through socket
-                SessionKey key{packet.source_ip, packet.source_port,
-                               packet.dest_ip, packet.dest_port, packet.protocol};
-                SocketForwarder::getInstance().forwardPacket(key, buffer, length);
-            }
-        }
-        else if (length < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
-        {
-            LOGE("Error reading from TUN: %d", errno);
-            break;
-        }
-
-        // Small delay to prevent busy waiting
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    LOGD("VPN packet processing thread stopped");
-}
-
-// Pcap packet handler for rooted capture
-void packet_handler(u_char *user_data, const struct pcap_pkthdr *header, const u_char *packet)
-{
-    if (!g_capture_running)
+    if (!g_vm)
         return;
 
-    PacketInfo parsed_packet = PacketParser::parsePacket(packet, header->len);
-
-    if (!parsed_packet.protocol.empty())
+    JNIEnv *env = nullptr;
+    if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK)
     {
-        SessionManager::getInstance().updateProtocolStats(parsed_packet.protocol, parsed_packet.size);
-        sendPacketToJava(parsed_packet);
+        return;
     }
+
+    jclass cls = env->FindClass("com/example/packet_analyzer/NativeInterface");
+    if (!cls)
+        return;
+
+    jmethodID mid = env->GetStaticMethodID(
+        cls,
+        "sendPacketToFlutter",
+        "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)V");
+    if (!mid)
+        return;
+
+    jstring jsrc = env->NewStringUTF(pkt.source_ip.c_str());
+    jstring jdst = env->NewStringUTF(pkt.dest_ip.c_str());
+    jstring jproto = env->NewStringUTF(pkt.protocol.c_str());
+
+    jint jSrcPort = pkt.source_port;
+    jint jDstPort = pkt.dest_port;
+    jint jSize = pkt.size;
+
+    // TODO: replace with real timestamp & payload later
+    jstring jTimestamp = env->NewStringUTF("0");
+    jstring jPayload = env->NewStringUTF("");
+
+    env->CallStaticVoidMethod(cls, mid,
+                              jsrc, jdst, jSrcPort, jDstPort, jproto, jSize, jTimestamp, jPayload);
+
+    env->DeleteLocalRef(jsrc);
+    env->DeleteLocalRef(jdst);
+    env->DeleteLocalRef(jproto);
+    env->DeleteLocalRef(jTimestamp);
+    env->DeleteLocalRef(jPayload);
 }
 
-// Rooted capture using libpcap
-void processRootedCapture()
+// ---- Raw PF_PACKET capture implementation ----
+static int set_if_promisc_sock(const char *ifname, int sockfd)
 {
-    char errbuf[PCAP_ERRBUF_SIZE];
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
 
-    LOGD("Attempting to open pcap interface");
+    if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) < 0)
+    {
+        LOGE("SIOCGIFFLAGS failed: %s", strerror(errno));
+        return -1;
+    }
+    ifr.ifr_flags |= IFF_PROMISC;
+    if (ioctl(sockfd, SIOCSIFFLAGS, &ifr) < 0)
+    {
+        LOGE("SIOCSIFFLAGS failed: %s", strerror(errno));
+        return -1;
+    }
+    return 0;
+}
 
-    // Try different interface names for Android
-    const char *interfaces[] = {"any", "wlan0", "eth0", "rmnet0", "rmnet_data0"};
+void processRootedCaptureRawSocket()
+{
+    LOGD("Starting raw PF_PACKET capture (rooted)");
+    const char *interfaces[] = {"wlan0", "eth0", "rmnet0", "rmnet_data0"};
     int interface_count = sizeof(interfaces) / sizeof(interfaces[0]);
 
-    for (int i = 0; i < interface_count && !g_pcap_handle; i++)
+    const size_t BUF_SZ = 262144;
+    uint8_t *buf = (uint8_t *)malloc(BUF_SZ);
+    if (!buf)
     {
-        g_pcap_handle = pcap_open_live(interfaces[i], 65536, 1, 1000, errbuf);
-        if (g_pcap_handle)
+        LOGE("malloc failed");
+        return;
+    }
+
+    int sockfd = -1;
+    for (int i = 0; i < interface_count; ++i)
+    {
+        const char *ifname = interfaces[i];
+        sockfd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+        if (sockfd < 0)
         {
-            LOGD("Successfully opened pcap on interface: %s", interfaces[i]);
+            LOGE("socket() failed: %s", strerror(errno));
+            free(buf);
+            return;
+        }
+
+        int ifindex = if_nametoindex(ifname);
+        if (ifindex == 0)
+        {
+            close(sockfd);
+            continue;
+        }
+
+        int flags = fcntl(sockfd, F_GETFL, 0);
+        if (flags != -1)
+            fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+        set_if_promisc_sock(ifname, sockfd);
+
+        struct sockaddr_ll sll;
+        memset(&sll, 0, sizeof(sll));
+        sll.sll_family = AF_PACKET;
+        sll.sll_protocol = htons(ETH_P_ALL);
+        sll.sll_ifindex = ifindex;
+
+        if (bind(sockfd, (struct sockaddr *)&sll, sizeof(sll)) == 0)
+        {
+            LOGD("Bound PF_PACKET socket to %s", ifname);
             break;
         }
         else
         {
-            LOGD("Failed to open interface %s: %s", interfaces[i], errbuf);
+            close(sockfd);
+            sockfd = -1;
         }
     }
 
-    if (!g_pcap_handle)
+    if (sockfd < 0)
     {
-        LOGE("Failed to open any pcap interface");
+        LOGE("No interface bound, exiting rooted capture");
+        free(buf);
         return;
     }
 
-    LOGD("Started rooted packet capture");
+    g_capture_running = true;
 
-    // Start packet capture loop
-    int result = pcap_loop(g_pcap_handle, -1, packet_handler, nullptr);
-    if (result < 0)
+    while (g_capture_running)
     {
-        LOGE("pcap_loop failed: %s", pcap_geterr(g_pcap_handle));
-    }
-
-    LOGD("Rooted packet capture stopped");
-}
-
-// Helper function to send packet data to Java/Flutter - COMPLETELY REWRITTEN FOR THREAD SAFETY
-void sendPacketToJava(const PacketInfo &packet)
-{
-    if (!g_javaVM || !g_nativeInterfaceClass || !g_sendPacketMethod)
-    {
-        LOGE("sendPacketToJava: JNI not properly initialized");
-        return;
-    }
-
-    JNIEnv *env;
-    bool needDetach = false;
-
-    // Get JNI environment for current thread
-    int getEnvStat = g_javaVM->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6);
-    if (getEnvStat == JNI_EDETACHED)
-    {
-        // Thread not attached, attach it
-        if (g_javaVM->AttachCurrentThread(&env, nullptr) != 0)
+        ssize_t n = recvfrom(sockfd, buf, BUF_SZ, 0, NULL, NULL);
+        if (n > 0)
         {
-            LOGE("sendPacketToJava: Failed to attach current thread");
-            return;
+            const size_t ETH_HDR_SZ = 14;
+            const uint8_t *payload = buf;
+            int payload_len = (int)n;
+
+            if (payload_len >= (int)ETH_HDR_SZ)
+            {
+                uint16_t ethertype = (buf[12] << 8) | buf[13];
+                if (ethertype == 0x0800)
+                {
+                    payload = buf + ETH_HDR_SZ;
+                    payload_len = (int)n - ETH_HDR_SZ;
+                }
+            }
+
+            if (payload_len > 0)
+            {
+                PacketInfo pkt = PacketParser::parsePacket(payload, payload_len);
+                if (!pkt.protocol.empty())
+                {
+                    SessionManager::getInstance().updateProtocolStats(pkt.protocol, pkt.size);
+                    sendPacketToJava(pkt);
+
+                    SessionKey key{pkt.source_ip, pkt.source_port, pkt.dest_ip, pkt.dest_port, pkt.protocol};
+                    SocketForwarder::getInstance().forwardPacket(key, payload, payload_len);
+                }
+            }
         }
-        needDetach = true;
-    }
-    else if (getEnvStat == JNI_EVERSION)
-    {
-        LOGE("sendPacketToJava: Unsupported JNI version");
-        return;
-    }
-
-    // Create Java strings
-    jstring sourceIp = env->NewStringUTF(packet.source_ip.c_str());
-    jstring destIp = env->NewStringUTF(packet.dest_ip.c_str());
-    jstring protocol = env->NewStringUTF(packet.protocol.c_str());
-    jstring timestamp = env->NewStringUTF(PacketParser::getCurrentTimestamp().c_str());
-    jstring payload = env->NewStringUTF(packet.payload.c_str());
-
-    // Call the cached method using global class reference
-    env->CallStaticVoidMethod(g_nativeInterfaceClass, g_sendPacketMethod,
-                              sourceIp, destIp,
-                              (jint)packet.source_port, (jint)packet.dest_port,
-                              protocol, (jint)packet.size, timestamp, payload);
-
-    // Clean up local references
-    env->DeleteLocalRef(sourceIp);
-    env->DeleteLocalRef(destIp);
-    env->DeleteLocalRef(protocol);
-    env->DeleteLocalRef(timestamp);
-    env->DeleteLocalRef(payload);
-
-    // Check for exceptions
-    if (env->ExceptionCheck())
-    {
-        LOGE("sendPacketToJava: Exception occurred");
-        env->ExceptionDescribe();
-        env->ExceptionClear();
+        else if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+        {
+            LOGE("recvfrom error: %s", strerror(errno));
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    // Detach thread if we attached it
-    if (needDetach)
-    {
-        g_javaVM->DetachCurrentThread();
-    }
+    LOGD("Raw PF_PACKET capture stopping");
+    close(sockfd);
+    free(buf);
+    g_capture_running = false;
 }
 
-// JNI function implementations
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_initializeVpnCapture(JNIEnv *env, jobject thiz, jint fd)
-{
-    g_tun_fd = fd;
-    LOGD("VPN capture initialized with FD: %d", fd);
-    return JNI_TRUE;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_processPacket(JNIEnv *env, jobject thiz, jbyteArray packet_array, jint length)
+// ---- JNI controls ----
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_packet_1analyzer_NativeInterface_startRootedCapture(JNIEnv *env, jobject thiz)
 {
     if (!g_capture_running)
     {
-        g_capture_running = true;
-        g_capture_thread = std::thread(processVpnPackets);
-        LOGD("Started VPN packet processing");
+        std::thread t(processRootedCaptureRawSocket);
+        t.detach();
     }
-    return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_startRootedCapture(JNIEnv *env, jobject thiz)
-{
-    if (g_capture_running)
-    {
-        LOGE("Capture already running");
-        return JNI_FALSE;
-    }
-
-    LOGD("Starting rooted capture");
-    g_capture_running = true;
-    g_capture_thread = std::thread(processRootedCapture);
-
-    return JNI_TRUE;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
+extern "C" JNIEXPORT void JNICALL
 Java_com_example_packet_1analyzer_NativeInterface_stopRootedCapture(JNIEnv *env, jobject thiz)
 {
-    LOGD("Stopping rooted capture");
     g_capture_running = false;
-
-    if (g_pcap_handle)
-    {
-        pcap_breakloop(g_pcap_handle);
-        pcap_close(g_pcap_handle);
-        g_pcap_handle = nullptr;
-    }
-
-    if (g_capture_thread.joinable())
-    {
-        g_capture_thread.join();
-    }
-
-    return JNI_TRUE;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_cleanup(JNIEnv *env, jobject thiz)
-{
-    LOGD("Cleaning up native resources");
-    g_capture_running = false;
-
-    if (g_capture_thread.joinable())
-    {
-        g_capture_thread.join();
-    }
-
-    if (g_pcap_handle)
-    {
-        pcap_close(g_pcap_handle);
-        g_pcap_handle = nullptr;
-    }
-
-    SocketForwarder::getInstance().cleanup();
-    SessionManager::getInstance().resetStats();
-
-    g_tun_fd = -1;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_clearPackets(JNIEnv *env, jobject thiz)
-{
-    LOGD("Clearing packet statistics");
-    SessionManager::getInstance().resetStats();
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_pauseCapture(JNIEnv *env, jobject thiz)
-{
-    LOGD("Pause capture requested");
-    // Implementation can be added here if needed
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_resumeCapture(JNIEnv *env, jobject thiz)
-{
-    LOGD("Resume capture requested");
-    // Implementation can be added here if needed
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_exportPackets(JNIEnv *env, jobject thiz)
-{
-    LOGD("Export packets requested");
-
-    // Simple export implementation - can be enhanced
-    auto stats = SessionManager::getInstance().getProtocolStats();
-    std::string export_data = "Packet Export\n=============\n";
-
-    for (const auto &stat : stats)
-    {
-        export_data += "Protocol: " + stat.protocol +
-                       ", Packets: " + std::to_string(stat.packet_count) +
-                       ", Bytes: " + std::to_string(stat.total_bytes) + "\n";
-    }
-
-    return env->NewStringUTF(export_data.c_str());
-}
-
-// Additional utility functions
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_isCapturing(JNIEnv *env, jobject thiz)
-{
-    return g_capture_running ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_getStats(JNIEnv *env, jobject thiz)
-{
-    auto stats = SessionManager::getInstance().getProtocolStats();
-    std::string stats_json = "[";
-
-    for (size_t i = 0; i < stats.size(); i++)
-    {
-        if (i > 0)
-            stats_json += ",";
-        stats_json += "{";
-        stats_json += "\"protocol\":\"" + stats[i].protocol + "\",";
-        stats_json += "\"packetCount\":" + std::to_string(stats[i].packet_count) + ",";
-        stats_json += "\"totalBytes\":" + std::to_string(stats[i].total_bytes);
-        stats_json += "}";
-    }
-
-    stats_json += "]";
-    return env->NewStringUTF(stats_json.c_str());
-}
-
-// Error handling helper
-extern "C" JNIEXPORT void JNICALL
-Java_com_example_packet_1analyzer_NativeInterface_sendError(JNIEnv *env, jobject thiz, jstring error)
-{
-    const char *error_str = env->GetStringUTFChars(error, nullptr);
-    LOGE("Error from Java: %s", error_str);
-    env->ReleaseStringUTFChars(error, error_str);
 }

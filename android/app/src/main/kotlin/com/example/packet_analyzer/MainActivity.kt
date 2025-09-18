@@ -1,19 +1,19 @@
 package com.example.packet_analyzer
 
+import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import android.util.Log
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-
     private val CHANNEL = "packet_analyzer"
-    private val VPN_REQUEST_CODE = 1000
     private val TAG = "MainActivity"
+    private val VPN_REQUEST_CODE = 1000
 
-    private lateinit var nativeInterface: NativeInterface
     private var pendingResult: MethodChannel.Result? = null
     private lateinit var methodChannel: MethodChannel
 
@@ -21,61 +21,49 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         Log.d(TAG, "Configuring Flutter engine")
 
-        nativeInterface = NativeInterface()
-        
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-        
-        // Set the method channel for both VPN service and native interface
         PacketVpnService.methodChannel = methodChannel
+
+        // Register channel with NativeInterface (so C++ can send packets/stats/status)
         NativeInterface.setMethodChannel(methodChannel)
 
         methodChannel.setMethodCallHandler { call, result ->
             Log.d(TAG, "Received method call: ${call.method}")
             when (call.method) {
-                "startVpnService" -> {
-                    startVpnService(result)
-                }
-                "stopVpnService" -> {
-                    stopVpnService(result)
-                }
+                // VPN handling
+                "startVpnService" -> startVpnService(result)
+                "stopVpnService" -> stopVpnService(result)
+
+                // Rooted capture handling
                 "startRootedCapture" -> {
-                    startRootedCapture(result)
+                    NativeInterface.nativeStartRootedCapture()
+                    result.success(true)
                 }
                 "stopRootedCapture" -> {
-                    stopRootedCapture(result)
+                    NativeInterface.nativeStopRootedCapture()
+                    result.success(true)
                 }
-                "isDeviceRooted" -> {
-                    val isRooted = nativeInterface.isDeviceRooted()
-                    Log.d(TAG, "Device rooted: $isRooted")
-                    result.success(isRooted)
-                }
-                "clearPackets" -> {
-                    try {
-                        nativeInterface.clearPackets()
-                        result.success(true)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error clearing packets", e)
-                        result.success(true) // Return success even if native clear fails
-                    }
-                }
-                else -> {
-                    result.notImplemented()
-                }
+
+                else -> result.notImplemented()
             }
         }
     }
 
+    // ---- VPN management ----
     private fun startVpnService(result: MethodChannel.Result) {
         Log.d(TAG, "Starting VPN service")
+        if (pendingResult != null) {
+            result.error("BUSY", "VPN request already pending", null)
+            return
+        }
         val intent = VpnService.prepare(this)
         if (intent != null) {
-            Log.d(TAG, "VPN permission required, requesting...")
-            startActivityForResult(intent, VPN_REQUEST_CODE)
+            Log.d(TAG, "VPN permission required, requesting…")
             pendingResult = result
+            startActivityForResult(intent, VPN_REQUEST_CODE)
         } else {
             Log.d(TAG, "VPN permission already granted, starting service")
-            val vpnIntent = Intent(this, PacketVpnService::class.java)
-            startService(vpnIntent)
+            startVpnForeground()
             result.success(true)
         }
     }
@@ -87,25 +75,17 @@ class MainActivity : FlutterActivity() {
         result.success(true)
     }
 
-    private fun startRootedCapture(result: MethodChannel.Result) {
-        Log.d(TAG, "Starting rooted capture")
-        val success = nativeInterface.startRootedCapture()
-        result.success(success)
-    }
-
-    private fun stopRootedCapture(result: MethodChannel.Result) {
-        Log.d(TAG, "Stopping rooted capture")
-        val success = nativeInterface.stopRootedCapture()
-        result.success(success)
+    private fun startVpnForeground() {
+        val vpnIntent = Intent(this, PacketVpnService::class.java)
+        ContextCompat.startForegroundService(this, vpnIntent)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
-            if (resultCode == RESULT_OK) {
+            if (resultCode == Activity.RESULT_OK) {
                 Log.d(TAG, "VPN permission granted, starting service")
-                val vpnIntent = Intent(this, PacketVpnService::class.java)
-                startService(vpnIntent)
+                startVpnForeground()
                 pendingResult?.success(true)
             } else {
                 Log.d(TAG, "VPN permission denied")
