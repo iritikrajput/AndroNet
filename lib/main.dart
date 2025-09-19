@@ -4,79 +4,74 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-// NOTE: We intentionally keep MethodChannel & EventChannel inside PacketService
-// to centralize native integration.
+// ================= GLOBAL PACKET LISTENER =================
+const _channel = MethodChannel("packet_analyzer");
 
-// ============= MAIN =============
-Future<void> main() async {
+void initPacketListener() {
+  _channel.setMethodCallHandler((call) async {
+    switch (call.method) {
+      case "onPacketReceived":
+        PacketService._handleNativePacket(
+          Map<String, dynamic>.from(call.arguments),
+        );
+        break;
+      case "onStatsUpdated":
+        final stats = call.arguments;
+        if (stats is String) {
+          try {
+            final parsed = jsonDecode(stats);
+            PacketService._handleNativeStats(parsed);
+          } catch (_) {}
+        } else {
+          PacketService._handleNativeStats(stats);
+        }
+        break;
+      case "onStatusChanged":
+        final status = call.arguments;
+        if (status is Map<String, dynamic>) {
+          PacketService._handleNativeStatus(status);
+        } else if (status is String) {
+          PacketService._handleNativeStatus({'status': status});
+        }
+        break;
+      case "onSessionsUpdated":
+        PacketService._handleNativeSessions(call.arguments);
+        break;
+      case "onMetricsUpdated":
+        if (call.arguments is Map) {
+          PacketService._handleNativeMetrics(
+            Map<String, dynamic>.from(call.arguments),
+          );
+        }
+        break;
+    }
+  });
+}
+
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize PacketService early so native calls can be handled before UI mount
-  await PacketService.initialize();
-  print("🚀 NetFlow Pro - PacketService Initialized");
-
+  initPacketListener();
+  PacketService.initialize();
   runApp(const PacketAnalyzerApp());
 }
 
-// ============= APP =============
-class PacketAnalyzerApp extends StatelessWidget {
-  const PacketAnalyzerApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'NetFlow Pro',
-      debugShowCheckedModeBanner: false,
-      theme: _buildOptimizedTheme(),
-      home: const PacketAnalyzerScreen(),
-    );
-  }
-
-  ThemeData _buildOptimizedTheme() {
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme:
-          ColorScheme.fromSeed(
-            seedColor: const Color(0xFF2563EB),
-            brightness: Brightness.light,
-          ).copyWith(
-            surface: const Color(0xFFFAFAFA),
-            surfaceVariant: const Color(0xFFF1F5F9),
-          ),
-      cardTheme: const CardThemeData(
-        elevation: 1,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-        ),
-      ),
-      appBarTheme: const AppBarTheme(
-        centerTitle: false,
-        elevation: 0,
-        scrolledUnderElevation: 1,
-      ),
-      dividerTheme: const DividerThemeData(thickness: 0.5, space: 1),
-    );
-  }
-}
-
-// ============= CAPTURE MODE ENUM =============
+// ================= CAPTURE MODE ENUM =================
 enum CaptureMode {
   vpn(
-    'VPN Mode',
-    'Standard packet capture using VPN service',
+    "VPN Mode",
+    "Capture via Android VPNService",
     Icons.vpn_lock,
     Colors.blue,
   ),
   root(
-    'Root Mode',
-    'Enhanced capture with root privileges',
+    "Root Mode",
+    "Raw sockets with root access",
     Icons.security,
     Colors.orange,
   ),
   pcap(
-    'PCAP Mode',
-    'Native packet capture (requires root)',
+    "PCAP Mode",
+    "Native libpcap capture (root required)",
     Icons.network_check,
     Colors.green,
   );
@@ -89,21 +84,11 @@ enum CaptureMode {
   final Color color;
 }
 
-// ============= MODELS =============
+// ================= ENHANCED MODELS =================
 class PacketInfo {
-  final String sourceIp;
-  final String destinationIp;
-  final int sourcePort;
-  final int destinationPort;
-  final String protocol;
-  final int size;
-  final String timestamp;
-  final String payload;
-  final String? direction;
-  final String? networkType;
-  final bool? isVpnTraffic;
-  final int? ttl;
-  final String? flags;
+  final String sourceIp, destinationIp, protocol, timestamp, payload;
+  final int sourcePort, destinationPort, size;
+  final String? direction, flags;
 
   const PacketInfo({
     required this.sourceIp,
@@ -115,516 +100,259 @@ class PacketInfo {
     required this.timestamp,
     required this.payload,
     this.direction,
-    this.networkType,
-    this.isVpnTraffic,
-    this.ttl,
     this.flags,
   });
 
-  factory PacketInfo.fromMap(Map<String, dynamic> map) {
-    return PacketInfo(
-      sourceIp: map['sourceIp']?.toString() ?? '',
-      destinationIp: map['destinationIp']?.toString() ?? '',
-      sourcePort: map['sourcePort'] is int
-          ? map['sourcePort']
-          : int.tryParse(map['sourcePort']?.toString() ?? '0') ?? 0,
-      destinationPort: map['destinationPort'] is int
-          ? map['destinationPort']
-          : int.tryParse(map['destinationPort']?.toString() ?? '0') ?? 0,
-      protocol: map['protocol']?.toString() ?? '',
-      size: map['size'] is int
-          ? map['size']
-          : int.tryParse(map['size']?.toString() ?? '0') ?? 0,
-      timestamp:
-          map['timestamp']?.toString() ??
-          DateTime.now().millisecondsSinceEpoch.toString(),
-      payload: map['payload']?.toString() ?? '',
-      direction: map['direction']?.toString(),
-      networkType: map['networkType']?.toString(),
-      isVpnTraffic: map['isVpnTraffic'] is bool
-          ? map['isVpnTraffic'] as bool
-          : null,
-      ttl: map['ttl'] is int
-          ? map['ttl'] as int
-          : int.tryParse(map['ttl']?.toString() ?? '') ?? null,
-      flags: map['flags']?.toString(),
-    );
-  }
+  factory PacketInfo.fromMap(Map<String, dynamic> map) => PacketInfo(
+    sourceIp: map['sourceIp']?.toString() ?? '',
+    destinationIp: map['destinationIp']?.toString() ?? '',
+    sourcePort: int.tryParse(map['sourcePort'].toString()) ?? 0,
+    destinationPort: int.tryParse(map['destinationPort'].toString()) ?? 0,
+    protocol: map['protocol']?.toString() ?? 'UNK',
+    size: int.tryParse(map['size'].toString()) ?? 0,
+    timestamp:
+        map['timestamp']?.toString() ??
+        DateTime.now().millisecondsSinceEpoch.toString(),
+    payload: map['payload']?.toString() ?? '',
+    direction: map['direction']?.toString(),
+    flags: map['flags']?.toString(),
+  );
 
   String get formattedTime {
     try {
       final time = DateTime.fromMillisecondsSinceEpoch(int.parse(timestamp));
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}.${(time.millisecond ~/ 100).toString()}';
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
     } catch (e) {
-      return timestamp;
+      return timestamp.substring(0, math.min(8, timestamp.length));
     }
   }
 
   bool get isOutgoing =>
-      direction?.toUpperCase() == 'OUTGOING' ||
-      direction?.toUpperCase() == 'OUT';
-
+      direction?.toUpperCase() == 'OUT' ||
+      direction?.toUpperCase() == 'OUTGOING';
   String get displayDirection => isOutgoing ? 'OUT' : 'IN';
-
   Color get directionColor =>
-      isOutgoing ? const Color(0xFF3B82F6) : const Color(0xFF10B981);
-}
-
-class SessionInfo {
-  final String sessionId;
-  final String type;
-  final String sourceIp;
-  final int sourcePort;
-  final String destIp;
-  final int destPort;
-  final int packetCount;
-  final int totalBytes;
-  final String lastActivity;
-  final String status;
-  final Duration? duration;
-
-  const SessionInfo({
-    required this.sessionId,
-    required this.type,
-    required this.sourceIp,
-    required this.sourcePort,
-    required this.destIp,
-    required this.destPort,
-    required this.packetCount,
-    required this.totalBytes,
-    required this.lastActivity,
-    required this.status,
-    this.duration,
-  });
-
-  factory SessionInfo.fromMap(Map<String, dynamic> map) {
-    return SessionInfo(
-      sessionId: map['sessionId']?.toString() ?? '',
-      type: map['type']?.toString() ?? '',
-      sourceIp: map['sourceIp']?.toString() ?? '',
-      sourcePort: map['sourcePort'] is int
-          ? map['sourcePort']
-          : int.tryParse(map['sourcePort']?.toString() ?? '0') ?? 0,
-      destIp:
-          map['destIp']?.toString() ?? map['destinationIp']?.toString() ?? '',
-      destPort: map['destPort'] is int
-          ? map['destPort']
-          : int.tryParse(map['destPort']?.toString() ?? '0') ?? 0,
-      packetCount: map['packetCount'] is int
-          ? map['packetCount']
-          : int.tryParse(map['packetCount']?.toString() ?? '0') ?? 0,
-      totalBytes: map['totalBytes'] is int
-          ? map['totalBytes']
-          : int.tryParse(map['totalBytes']?.toString() ?? '0') ?? 0,
-      lastActivity: map['lastActivity']?.toString() ?? '',
-      status: map['status']?.toString() ?? 'UNKNOWN',
-      duration: map['duration'] != null
-          ? Duration(
-              seconds: map['duration'] is int
-                  ? map['duration']
-                  : int.tryParse(map['duration']?.toString() ?? '0') ?? 0,
-            )
-          : null,
-    );
-  }
-
-  bool get isActive => status.toUpperCase() == 'ACTIVE';
-  String get sessionKey => '$sourceIp:$sourcePort→$destIp:$destPort';
+      isOutgoing ? const Color(0xFF2196F3) : const Color(0xFF4CAF50);
 }
 
 class ProtocolStats {
   final String protocol;
   final int packetCount;
-  final int totalBytes;
   final double percentage;
 
   const ProtocolStats({
     required this.protocol,
     required this.packetCount,
-    required this.totalBytes,
     this.percentage = 0.0,
   });
-
-  factory ProtocolStats.fromMap(Map<String, dynamic> map) {
-    return ProtocolStats(
-      protocol: map['protocol']?.toString() ?? '',
-      packetCount: map['packetCount'] is int
-          ? map['packetCount']
-          : int.tryParse(map['packetCount']?.toString() ?? '0') ?? 0,
-      totalBytes: map['totalBytes'] is int
-          ? map['totalBytes']
-          : int.tryParse(map['totalBytes']?.toString() ?? '0') ?? 0,
-      percentage: map['percentage'] is double
-          ? map['percentage']
-          : double.tryParse(map['percentage']?.toString() ?? '0') ?? 0.0,
-    );
-  }
 }
 
 class NetworkMetrics {
   final int totalPackets;
-  final int totalBytes;
   final double packetsPerSecond;
-  final double bytesPerSecond;
-  final int activeSessions;
-  final Duration uptime;
+  final int totalSessions;
+  final double dataRate;
 
   const NetworkMetrics({
     required this.totalPackets,
-    required this.totalBytes,
     required this.packetsPerSecond,
-    required this.bytesPerSecond,
-    required this.activeSessions,
-    required this.uptime,
+    this.totalSessions = 0,
+    this.dataRate = 0.0,
   });
 
   factory NetworkMetrics.fromMap(Map<String, dynamic> map) {
+    int _toInt(dynamic v) =>
+        (v is int) ? v : int.tryParse(v?.toString() ?? "0") ?? 0;
+    double _toDouble(dynamic v) =>
+        (v is double) ? v : double.tryParse(v?.toString() ?? "0") ?? 0;
+
     return NetworkMetrics(
-      totalPackets: map['totalPackets'] is int
-          ? map['totalPackets']
-          : int.tryParse(map['totalPackets']?.toString() ?? '0') ?? 0,
-      totalBytes: map['totalBytes'] is int
-          ? map['totalBytes']
-          : int.tryParse(map['totalBytes']?.toString() ?? '0') ?? 0,
-      packetsPerSecond: map['packetsPerSecond'] is double
-          ? map['packetsPerSecond']
-          : double.tryParse(map['packetsPerSecond']?.toString() ?? '0') ?? 0.0,
-      bytesPerSecond: map['bytesPerSecond'] is double
-          ? map['bytesPerSecond']
-          : double.tryParse(map['bytesPerSecond']?.toString() ?? '0') ?? 0.0,
-      activeSessions: map['activeSessions'] is int
-          ? map['activeSessions']
-          : int.tryParse(map['activeSessions']?.toString() ?? '0') ?? 0,
-      uptime: Duration(
-        seconds: map['uptime'] is int
-            ? map['uptime']
-            : int.tryParse(map['uptime']?.toString() ?? '0') ?? 0,
-      ),
+      totalPackets: _toInt(map['totalPackets']),
+      packetsPerSecond: _toDouble(map['packetsPerSecond']),
+      totalSessions: _toInt(map['totalSessions']),
+      dataRate: _toDouble(map['dataRate']),
     );
   }
 }
 
-// ============= PACKET SERVICE (native integration) =============
+// ================= ENHANCED PACKET SERVICE =================
 class PacketService {
   static const MethodChannel _channel = MethodChannel('packet_analyzer');
-  static const EventChannel _eventChannel = EventChannel(
-    'packet_analyzer/events',
-  );
 
-  static final StreamController<PacketInfo> _packetController =
-      StreamController<PacketInfo>.broadcast();
-  static final StreamController<List<ProtocolStats>> _statsController =
-      StreamController<List<ProtocolStats>>.broadcast();
-  static final StreamController<List<SessionInfo>> _sessionsController =
-      StreamController<List<SessionInfo>>.broadcast();
-  static final StreamController<NetworkMetrics> _metricsController =
+  static final _packetController = StreamController<PacketInfo>.broadcast();
+  static final _statusController = StreamController<String>.broadcast();
+  static final _metricsController =
       StreamController<NetworkMetrics>.broadcast();
-  static final StreamController<String> _statusController =
-      StreamController<String>.broadcast();
+  static final _statsController =
+      StreamController<List<ProtocolStats>>.broadcast();
 
   static Stream<PacketInfo> get packetStream => _packetController.stream;
-  static Stream<List<ProtocolStats>> get statsStream => _statsController.stream;
-  static Stream<List<SessionInfo>> get sessionsStream =>
-      _sessionsController.stream;
-  static Stream<NetworkMetrics> get metricsStream => _metricsController.stream;
   static Stream<String> get statusStream => _statusController.stream;
+  static Stream<NetworkMetrics> get metricsStream => _metricsController.stream;
+  static Stream<List<ProtocolStats>> get statsStream => _statsController.stream;
 
-  // Initialize: set method handler and event channel listener
+  static final _buffer = <Map<String, dynamic>>[];
+  static Timer? _flushTimer;
+  static Timer? _statsTimer;
+
   static Future<void> initialize() async {
-    print("🔧 Initializing PacketService...");
+    _flushTimer ??= Timer.periodic(
+      const Duration(milliseconds: 150),
+      (_) => _flush(),
+    );
 
-    _channel.setMethodCallHandler(_handleMethodCall);
-
-    // Event channel might stream packet maps at high frequency
-    try {
-      _eventChannel.receiveBroadcastStream().listen(
-        (dynamic event) {
-          try {
-            if (event is Map) {
-              final map = Map<String, dynamic>.from(event);
-              _handleNativePacket(map);
-            }
-          } catch (e) {
-            debugPrint("EventChannel error processing: $e");
-          }
-        },
-        onError: (error) {
-          debugPrint("EventChannel error: $error");
-        },
-      );
-    } catch (e) {
-      debugPrint("EventChannel setup failed: $e");
-    }
-
-    print("✅ PacketService initialized successfully");
+    _statsTimer ??= Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _generateMockStats(),
+    );
   }
 
-  // Method handler (legacy single calls)
-  static Future<dynamic> _handleMethodCall(MethodCall call) async {
-    try {
-      switch (call.method) {
-        case 'onPacketReceived':
-          if (call.arguments is Map) {
-            _handleNativePacket(
-              Map<String, dynamic>.from(call.arguments as Map),
-            );
-          }
-          break;
-        case 'onStatsUpdated':
-          _handleNativeStats(call.arguments);
-          break;
-        case 'onSessionsUpdated':
-          _handleNativeSessions(call.arguments);
-          break;
-        case 'onMetricsUpdated':
-          if (call.arguments is Map) {
-            _handleNativeMetrics(
-              Map<String, dynamic>.from(call.arguments as Map),
-            );
-          }
-          break;
-        case 'onStatusChanged':
-          if (call.arguments is Map) {
-            _handleNativeStatus(
-              Map<String, dynamic>.from(call.arguments as Map),
-            );
-          } else if (call.arguments is String) {
-            _handleNativeStatus({'status': call.arguments});
-          }
-          break;
-        default:
-          debugPrint("Unknown native method: ${call.method}");
-      }
-    } catch (e) {
-      debugPrint("Error handling native method ${call.method}: $e");
-    }
-    return null;
+  static void disposeService() {
+    _flushTimer?.cancel();
+    _statsTimer?.cancel();
+    _packetController.close();
+    _statusController.close();
+    _metricsController.close();
+    _statsController.close();
   }
 
-  // Native handlers (consolidated)
-  static void _handleNativePacket(Map<String, dynamic> packetData) {
-    try {
-      final packet = PacketInfo.fromMap(packetData);
-      _packetController.add(packet);
-      debugPrint(
-        "✅ Packet processed: ${packet.protocol} ${packet.sourceIp}→${packet.destinationIp}",
-      );
-    } catch (e) {
-      debugPrint("❌ Error processing packet: $e");
-    }
+  // Native handlers
+  static void _handleNativePacket(Map<String, dynamic> map) {
+    _buffer.add(map);
   }
 
-  static void _handleNativeStats(dynamic statsData) {
+  static void _handleNativeStats(dynamic stats) {
     try {
-      List<ProtocolStats> stats = [];
-
-      if (statsData is List) {
-        stats = statsData
-            .where((item) => item is Map)
+      if (stats is List) {
+        final protocolStats = stats
             .map(
-              (item) =>
-                  ProtocolStats.fromMap(Map<String, dynamic>.from(item as Map)),
+              (e) => ProtocolStats(
+                protocol: e['protocol']?.toString() ?? 'Unknown',
+                packetCount:
+                    int.tryParse(e['packetCount']?.toString() ?? '0') ?? 0,
+                percentage:
+                    double.tryParse(e['percentage']?.toString() ?? '0') ?? 0.0,
+              ),
             )
             .toList();
-      } else if (statsData is Map) {
-        final m = Map<String, dynamic>.from(statsData);
-        if (m.containsKey('protocols') && m['protocols'] is List) {
-          stats = (m['protocols'] as List)
-              .where((item) => item is Map)
-              .map(
-                (item) => ProtocolStats.fromMap(
-                  Map<String, dynamic>.from(item as Map),
-                ),
-              )
-              .toList();
-        } else {
-          stats = [ProtocolStats.fromMap(m)];
-        }
-      } else if (statsData is String) {
-        final parsed = jsonDecode(statsData);
-        _handleNativeStats(parsed);
-        return;
+        _statsController.add(protocolStats);
       }
-
-      _statsController.add(stats);
-      debugPrint("✅ Stats processed: ${stats.length} protocols");
     } catch (e) {
-      debugPrint("❌ Error processing stats: $e");
+      debugPrint("Error processing stats: $e");
     }
+  }
+
+  static void _handleNativeStatus(Map<String, dynamic> status) {
+    _statusController.add(status['status']?.toString() ?? "Unknown");
   }
 
   static void _handleNativeSessions(dynamic sessionsData) {
-    try {
-      List<SessionInfo> sessions = [];
-
-      if (sessionsData is List) {
-        sessions = sessionsData
-            .where((item) => item is Map)
-            .map(
-              (item) =>
-                  SessionInfo.fromMap(Map<String, dynamic>.from(item as Map)),
-            )
-            .toList();
-      } else if (sessionsData is Map) {
-        sessions = [
-          SessionInfo.fromMap(Map<String, dynamic>.from(sessionsData as Map)),
-        ];
-      }
-
-      _sessionsController.add(sessions);
-      debugPrint("✅ Sessions processed: ${sessions.length} sessions");
-    } catch (e) {
-      debugPrint("❌ Error processing sessions: $e");
-    }
+    debugPrint("Sessions update: $sessionsData");
   }
 
   static void _handleNativeMetrics(Map<String, dynamic> metricsData) {
     try {
-      final metrics = NetworkMetrics.fromMap(metricsData);
-      _metricsController.add(metrics);
-      debugPrint(
-        "✅ Metrics processed: ${metrics.packetsPerSecond.toStringAsFixed(1)} pps",
-      );
+      _metricsController.add(NetworkMetrics.fromMap(metricsData));
     } catch (e) {
-      debugPrint("❌ Error processing metrics: $e");
+      debugPrint("Error processing metrics: $e");
     }
   }
 
-  static void _handleNativeStatus(Map<String, dynamic> statusData) {
-    try {
-      final status =
-          statusData['status']?.toString() ??
-          statusData['message']?.toString() ??
-          'Unknown';
-      _statusController.add(status);
-      debugPrint("✅ Status processed: $status");
-    } catch (e) {
-      debugPrint("❌ Error processing status: $e");
+  static void _flush() {
+    if (_buffer.isEmpty) return;
+    final batch = List<Map<String, dynamic>>.from(_buffer);
+    _buffer.clear();
+    for (final m in batch) {
+      _packetController.add(PacketInfo.fromMap(m));
     }
   }
 
-  // ============= COMMANDS =============
-  static Future<bool> startVpnService() async {
-    try {
-      final result = await _channel.invokeMethod('startVpnService');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error starting VPN service: $e');
-      return false;
-    }
+  // Mock stats for demo purposes
+  static void _generateMockStats() {
+    final protocols = ['TCP', 'UDP', 'HTTP', 'HTTPS', 'DNS', 'ICMP'];
+    final stats = protocols
+        .map(
+          (p) => ProtocolStats(
+            protocol: p,
+            packetCount: math.Random().nextInt(150) + 10,
+            percentage: math.Random().nextDouble() * 25 + 5,
+          ),
+        )
+        .toList();
+    _statsController.add(stats);
   }
 
-  static Future<bool> stopVpnService() async {
-    try {
-      final result = await _channel.invokeMethod('stopVpnService');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error stopping VPN service: $e');
-      return false;
-    }
-  }
+  // Control methods (merged from both sources)
+  static Future<bool> startVpnService() async =>
+      (await _channel.invokeMethod('startVpnService')) == true;
 
-  static Future<bool> startRootCapture() async {
-    try {
-      final result = await _channel.invokeMethod('startRootedCapture');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error starting root capture: $e');
-      return false;
-    }
-  }
+  static Future<bool> stopVpnService() async =>
+      (await _channel.invokeMethod('stopVpnService')) == true;
 
-  static Future<bool> stopRootCapture() async {
-    try {
-      final result = await _channel.invokeMethod('stopRootedCapture');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error stopping root capture: $e');
-      return false;
-    }
-  }
+  static Future<bool> startRootCapture() async =>
+      (await _channel.invokeMethod('startRootedCapture')) == true;
 
-  static Future<bool> startPcapCapture() async {
-    try {
-      final result = await _channel.invokeMethod('startPcapCapture');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error starting pcap capture: $e');
-      return false;
-    }
-  }
+  static Future<bool> stopRootCapture() async =>
+      (await _channel.invokeMethod('stopRootedCapture')) == true;
 
-  static Future<bool> stopPcapCapture() async {
-    try {
-      final result = await _channel.invokeMethod('stopPcapCapture');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error stopping pcap capture: $e');
-      return false;
-    }
-  }
+  static Future<bool> startPcapCapture() async =>
+      (await _channel.invokeMethod('startPcapCapture')) == true;
 
-  static Future<bool> closeSession(String sessionId) async {
-    try {
-      final result = await _channel.invokeMethod('closeSession', {
-        'sessionId': sessionId,
-      });
-      return result == true;
-    } catch (e) {
-      debugPrint('Error closing session: $e');
-      return false;
-    }
-  }
+  static Future<bool> stopPcapCapture() async =>
+      (await _channel.invokeMethod('stopPcapCapture')) == true;
 
-  static Future<bool> isDeviceRooted() async {
-    try {
-      final result = await _channel.invokeMethod('isDeviceRooted');
-      return result == true;
-    } catch (e) {
-      debugPrint('Error checking root status: $e');
-      return false;
-    }
-  }
+  static Future<bool> isDeviceRooted() async =>
+      (await _channel.invokeMethod('isDeviceRooted')) == true;
 
-  static Future<List<String>> getAvailableInterfaces() async {
-    try {
-      final result = await _channel.invokeMethod('getAvailableInterfaces');
-      return List<String>.from(result ?? []);
-    } catch (e) {
-      debugPrint('Error getting network interfaces: $e');
-      return [];
-    }
-  }
+  static Future<String?> exportPackets() async =>
+      await _channel.invokeMethod('exportPackets');
 
   static Future<void> clearPackets() async {
     try {
       await _channel.invokeMethod('clearPackets');
-      debugPrint("Packets cleared");
-    } catch (e) {
-      debugPrint('Error clearing packets: $e');
+    } catch (_) {
+      debugPrint("clearPackets not implemented natively");
     }
-  }
-
-  static Future<Map<String, dynamic>?> getNetworkInfo() async {
-    try {
-      final result = await _channel.invokeMethod('getNetworkInfo');
-      return result != null ? Map<String, dynamic>.from(result) : null;
-    } catch (e) {
-      debugPrint('Error getting network info: $e');
-      return null;
-    }
-  }
-
-  static void dispose() {
-    _packetController.close();
-    _statsController.close();
-    _sessionsController.close();
-    _metricsController.close();
-    _statusController.close();
   }
 }
 
-// ============= UI: PacketAnalyzerScreen =============
+// ================= OPTIMIZED UI APP =================
+class PacketAnalyzerApp extends StatelessWidget {
+  const PacketAnalyzerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Andronet',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme:
+            ColorScheme.fromSeed(
+              seedColor: const Color(0xFF1565C0),
+              brightness: Brightness.light,
+            ).copyWith(
+              surface: const Color(0xFFFAFBFC),
+              surfaceVariant: const Color(0xFFF1F3F4),
+            ),
+        cardTheme: const CardThemeData(
+          elevation: 2,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+        ),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+        ),
+      ),
+      home: const PacketAnalyzerScreen(),
+    );
+  }
+}
+
 class PacketAnalyzerScreen extends StatefulWidget {
   const PacketAnalyzerScreen({super.key});
 
@@ -638,49 +366,42 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   bool _isCapturing = false;
   bool _isRooted = false;
   CaptureMode _selectedCaptureMode = CaptureMode.vpn;
-  final List<PacketInfo> _packets = [];
-  List<ProtocolStats> _stats = [];
-  List<SessionInfo> _sessions = [];
-  List<String> _availableInterfaces = [];
-  NetworkMetrics? _metrics;
-  String _currentStatus = 'Ready';
 
-  // UI state
-  String _selectedProtocolFilter = 'ALL';
+  final List<PacketInfo> _packets = [];
+  List<ProtocolStats> _protocolStats = [];
+  String _currentStatus = 'Ready';
+  NetworkMetrics? _metrics;
+  String _selectedProtocolFilter = "ALL";
   bool _autoScroll = true;
-  int _currentTab = 0;
+  int _selectedTabIndex = 0;
 
   // Subscriptions
-  StreamSubscription<PacketInfo>? _packetSubscription;
-  StreamSubscription<List<ProtocolStats>>? _statsSubscription;
-  StreamSubscription<List<SessionInfo>>? _sessionsSubscription;
-  StreamSubscription<NetworkMetrics>? _metricsSubscription;
-  StreamSubscription<String>? _statusSubscription;
+  StreamSubscription<PacketInfo>? _packetSub;
+  StreamSubscription<String>? _statusSub;
+  StreamSubscription<NetworkMetrics>? _metricsSub;
+  StreamSubscription<List<ProtocolStats>>? _statsSub;
 
   // Controllers
   late TabController _tabController;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  // Performance optimizations
+  // Performance optimization
   Timer? _debounceTimer;
-  static const int _maxPackets = 2000;
-  static const Duration _debounceDelay = Duration(milliseconds: 100);
+  static const int _maxPackets = 1500; // Optimized buffer size
 
   @override
   void initState() {
     super.initState();
-    print("🎯 PacketAnalyzerScreen initializing...");
     _initializeControllers();
-    _initializeService();
+    _setupStreamSubscriptions();
+    _checkRoot();
   }
 
   void _initializeControllers() {
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
-      if (mounted) {
-        setState(() => _currentTab = _tabController.index);
-      }
+      if (mounted) setState(() => _selectedTabIndex = _tabController.index);
     });
 
     _pulseController = AnimationController(
@@ -688,298 +409,154 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       vsync: this,
     );
 
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
+    _pulseAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
   }
 
-  Future<void> _initializeService() async {
-    print("🔧 Checking device capabilities...");
-    _isRooted = await PacketService.isDeviceRooted();
-    _availableInterfaces = await PacketService.getAvailableInterfaces();
-
-    if (_isRooted) {
-      _selectedCaptureMode = CaptureMode.root;
-      print("📱 Device is rooted - auto-selected root mode");
-    } else {
-      _selectedCaptureMode = CaptureMode.vpn;
-      print("📱 Device is not rooted - using VPN mode");
-    }
-
-    _setupStreamSubscriptions();
-    setState(() {});
-  }
-
   void _setupStreamSubscriptions() {
-    _packetSubscription = PacketService.packetStream.listen((packet) {
+    _packetSub = PacketService.packetStream.listen((packet) {
       _debounceTimer?.cancel();
-      _debounceTimer = Timer(_debounceDelay, () {
-        if (!mounted) return;
-        setState(() {
-          _packets.insert(0, packet);
-          if (_packets.length > _maxPackets) {
-            _packets.removeRange(_maxPackets ~/ 2, _packets.length);
+      _debounceTimer = Timer(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          setState(() {
+            _packets.insert(0, packet);
+            if (_packets.length > _maxPackets) {
+              _packets.removeRange(_maxPackets ~/ 2, _packets.length);
+            }
+          });
+
+          if (_isCapturing) {
+            _pulseController.forward().then((_) => _pulseController.reverse());
           }
-        });
-        if (_isCapturing) {
-          _pulseController.forward().then((_) => _pulseController.reverse());
         }
       });
     });
 
-    _statsSubscription = PacketService.statsStream.listen((stats) {
-      if (!mounted) return;
-      setState(() => _stats = stats);
+    _statusSub = PacketService.statusStream.listen((status) {
+      if (mounted) setState(() => _currentStatus = status);
     });
 
-    _sessionsSubscription = PacketService.sessionsStream.listen((sessions) {
-      if (!mounted) return;
-      setState(() => _sessions = sessions);
+    _metricsSub = PacketService.metricsStream.listen((metrics) {
+      if (mounted) setState(() => _metrics = metrics);
     });
 
-    _metricsSubscription = PacketService.metricsStream.listen((metrics) {
-      if (!mounted) return;
-      setState(() => _metrics = metrics);
-    });
-
-    _statusSubscription = PacketService.statusStream.listen((status) {
-      if (!mounted) return;
-      setState(() => _currentStatus = status);
+    _statsSub = PacketService.statsStream.listen((stats) {
+      if (mounted) setState(() => _protocolStats = stats);
     });
   }
 
-  // Toggle capture based on selected mode
+  Future<void> _checkRoot() async {
+    try {
+      _isRooted = await PacketService.isDeviceRooted();
+      if (mounted) {
+        setState(() {
+          if (_isRooted) _selectedCaptureMode = CaptureMode.root;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking root: $e');
+    }
+  }
+
   Future<void> _toggleCapture() async {
     bool success = false;
 
-    if (_isCapturing) {
-      switch (_selectedCaptureMode) {
-        case CaptureMode.vpn:
-          success = await PacketService.stopVpnService();
-          break;
-        case CaptureMode.root:
-          success = await PacketService.stopRootCapture();
-          break;
-        case CaptureMode.pcap:
-          success = await PacketService.stopPcapCapture();
-          break;
+    try {
+      if (_isCapturing) {
+        switch (_selectedCaptureMode) {
+          case CaptureMode.vpn:
+            success = await PacketService.stopVpnService();
+            break;
+          case CaptureMode.root:
+            success = await PacketService.stopRootCapture();
+            break;
+          case CaptureMode.pcap:
+            success = await PacketService.stopPcapCapture();
+            break;
+        }
+      } else {
+        switch (_selectedCaptureMode) {
+          case CaptureMode.vpn:
+            success = await PacketService.startVpnService();
+            break;
+          case CaptureMode.root:
+            if (!_isRooted) {
+              _showSnackBar(
+                "Root access required for this mode",
+                Colors.red,
+                Icons.error_outline,
+              );
+              return;
+            }
+            success = await PacketService.startRootCapture();
+            break;
+          case CaptureMode.pcap:
+            if (!_isRooted) {
+              _showSnackBar(
+                "Root access required for PCAP mode",
+                Colors.red,
+                Icons.error_outline,
+              );
+              return;
+            }
+            success = await PacketService.startPcapCapture();
+            break;
+        }
       }
-    } else {
-      switch (_selectedCaptureMode) {
-        case CaptureMode.vpn:
-          success = await PacketService.startVpnService();
-          break;
-        case CaptureMode.root:
-          if (!_isRooted) {
-            _showOptimizedSnackBar(
-              'Root access required for this mode',
-              Colors.red,
-              Icons.error_outline,
-            );
-            return;
-          }
-          success = await PacketService.startRootCapture();
-          break;
-        case CaptureMode.pcap:
-          if (!_isRooted) {
-            _showOptimizedSnackBar(
-              'Root access required for PCAP mode',
-              Colors.red,
-              Icons.error_outline,
-            );
-            return;
-          }
-          success = await PacketService.startPcapCapture();
-          break;
-      }
-    }
 
-    if (success && mounted) {
-      setState(() => _isCapturing = !_isCapturing);
-      _showOptimizedSnackBar(
-        _isCapturing
-            ? '✅ ${_selectedCaptureMode.title} started'
-            : '⏹️ Capture stopped',
-        _isCapturing ? Colors.green : Colors.orange,
-        _isCapturing ? Icons.play_circle : Icons.stop_circle,
-      );
-    } else {
-      _showOptimizedSnackBar(
-        '❌ Operation failed',
-        Colors.red,
-        Icons.error_outline,
-      );
+      if (success && mounted) {
+        setState(() => _isCapturing = !_isCapturing);
+        _showSnackBar(
+          _isCapturing
+              ? "✅ ${_selectedCaptureMode.title} started successfully"
+              : "⏹️ Capture stopped",
+          _isCapturing ? Colors.green : Colors.orange,
+          _isCapturing ? Icons.play_circle_filled : Icons.stop_circle,
+        );
+      } else {
+        _showSnackBar(
+          "❌ Failed to ${_isCapturing ? 'stop' : 'start'} capture",
+          Colors.red,
+          Icons.error,
+        );
+      }
+    } catch (e) {
+      _showSnackBar("Error: ${e.toString()}", Colors.red, Icons.error);
     }
   }
 
-  void _showCaptureModeSelector() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.tune, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(
-                  'Select Capture Mode',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...CaptureMode.values.map((mode) => _buildCaptureModeOption(mode)),
-            const SizedBox(height: 8),
-            if (!_isRooted)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange, size: 16),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Root access required for enhanced capture modes',
-                        style: TextStyle(fontSize: 12, color: Colors.orange),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCaptureModeOption(CaptureMode mode) {
-    final isSelected = _selectedCaptureMode == mode;
-    final isEnabled = mode == CaptureMode.vpn || _isRooted;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: isEnabled
-              ? () {
-                  setState(() => _selectedCaptureMode = mode);
-                  Navigator.pop(context);
-                  _showOptimizedSnackBar(
-                    '${mode.title} selected',
-                    mode.color,
-                    mode.icon,
-                  );
-                }
-              : null,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? mode.color.withOpacity(0.08)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isSelected ? mode.color : Colors.grey.shade300,
-                width: isSelected ? 2 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: isEnabled
-                        ? mode.color.withOpacity(0.08)
-                        : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Icon(
-                    mode.icon,
-                    color: isEnabled ? mode.color : Colors.grey,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        mode.title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: isEnabled ? null : Colors.grey,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        mode.description,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isEnabled
-                              ? Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withOpacity(0.7)
-                              : Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (isSelected)
-                  Icon(Icons.check_circle, color: mode.color, size: 20),
-                if (!isEnabled)
-                  Icon(Icons.lock, color: Colors.grey.shade400, size: 16),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+  Future<void> _exportPackets() async {
+    try {
+      final path = await PacketService.exportPackets();
+      if (path != null && mounted) {
+        _showSnackBar(
+          "✅ Exported to: $path",
+          Colors.green,
+          Icons.file_download,
+        );
+      } else {
+        _showSnackBar("❌ Export failed", Colors.red, Icons.error);
+      }
+    } catch (e) {
+      _showSnackBar("Export error: ${e.toString()}", Colors.red, Icons.error);
+    }
   }
 
   void _clearAllData() {
-    setState(() {
-      _packets.clear();
-      _stats.clear();
-      _sessions.clear();
-      _metrics = null;
-    });
+    setState(() => _packets.clear());
     PacketService.clearPackets();
-    _showOptimizedSnackBar(
-      '🗑️ All data cleared',
-      Colors.blue,
-      Icons.clear_all,
-    );
+    _showSnackBar("🗑️ All data cleared", Colors.blue, Icons.clear_all);
   }
 
-  void _showOptimizedSnackBar(String message, Color color, IconData icon) {
+  void _showSnackBar(String message, Color color, IconData icon) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 message,
@@ -997,23 +574,50 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
+  // UI Helper Methods
+  Color _protocolColor(String proto) {
+    switch (proto.toUpperCase()) {
+      case "TCP":
+        return const Color(0xFF2196F3);
+      case "UDP":
+        return const Color(0xFF4CAF50);
+      case "HTTP":
+        return const Color(0xFFFF9800);
+      case "HTTPS":
+        return const Color(0xFF9C27B0);
+      case "DNS":
+        return const Color(0xFF00BCD4);
+      case "ICMP":
+        return const Color(0xFFF44336);
+      case "SSH":
+        return const Color(0xFF3F51B5);
+      default:
+        return const Color(0xFF607D8B);
+    }
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '${bytes}B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+  }
+
   List<PacketInfo> get _filteredPackets {
-    if (_selectedProtocolFilter == 'ALL') return _packets;
+    if (_selectedProtocolFilter == "ALL") return _packets;
     return _packets
-        .where((p) => p.protocol.toUpperCase() == _selectedProtocolFilter)
+        .where((pkt) => pkt.protocol.toUpperCase() == _selectedProtocolFilter)
         .toList();
   }
 
-  // ============= BUILD (Scaffold) ============
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
-      appBar: _buildOptimizedAppBar(),
+      appBar: _buildEnhancedAppBar(),
       body: Column(
         children: [
           _buildEnhancedMetricsPanel(),
-          _buildOptimizedTabBar(),
+          _buildModernTabBar(),
           Expanded(child: _buildTabContent()),
         ],
       ),
@@ -1022,7 +626,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
-  PreferredSizeWidget _buildOptimizedAppBar() {
+  // ================= ENHANCED UI COMPONENTS =================
+
+  PreferredSizeWidget _buildEnhancedAppBar() {
     return AppBar(
       title: Row(
         children: [
@@ -1044,9 +650,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'NetFlow Pro',
+                'Andronet\n   by CipherSec',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
@@ -1054,7 +660,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               Text(
                 _currentStatus,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 6,
                   color: Theme.of(
                     context,
                   ).colorScheme.onSurface.withOpacity(0.7),
@@ -1065,20 +671,33 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         ],
       ),
       backgroundColor: Theme.of(context).colorScheme.surface,
-      elevation: 0,
       actions: [
-        _buildOptimizedStatusIndicator(),
+        _buildLiveStatusIndicator(),
         IconButton(
+          icon: const Icon(Icons.file_download),
+          onPressed: _exportPackets,
+          tooltip: 'Export Packets',
+        ),
+        PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
-          onPressed: () => _showOptionsMenu(context),
+          onSelected: _handleMenuSelection,
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'mode',
+              child: Text('Change Capture Mode'),
+            ),
+            const PopupMenuItem(value: 'clear', child: Text('Clear All Data')),
+            const PopupMenuItem(value: 'settings', child: Text('Settings')),
+            const PopupMenuItem(value: 'about', child: Text('About')),
+          ],
         ),
       ],
     );
   }
 
-  Widget _buildOptimizedStatusIndicator() {
+  Widget _buildLiveStatusIndicator() {
     return Container(
-      margin: const EdgeInsets.only(right: 8),
+      margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: _isCapturing
@@ -1125,137 +744,145 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   Widget _buildEnhancedMetricsPanel() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+            Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
         ),
       ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: _selectedCaptureMode.color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: _selectedCaptureMode.color.withOpacity(0.3),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _selectedCaptureMode.icon,
-                  size: 16,
-                  color: _selectedCaptureMode.color,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Capture Mode Indicator
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: _selectedCaptureMode.color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _selectedCaptureMode.color.withOpacity(0.3),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  _selectedCaptureMode.title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _selectedCaptureMode.icon,
+                    size: 18,
                     color: _selectedCaptureMode.color,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: Colors.green,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: _showCaptureModeSelector,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: Icon(
-                      Icons.tune,
-                      size: 14,
+                  const SizedBox(width: 8),
+                  Text(
+                    _selectedCaptureMode.title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                       color: _selectedCaptureMode.color,
                     ),
                   ),
+                  const SizedBox(width: 4),
+                  InkWell(
+                    onTap: _showCaptureModeSelector,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.tune,
+                        size: 16,
+                        color: _selectedCaptureMode.color,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Enhanced Metrics Grid
+            Row(
+              children: [
+                _buildMetricCard(
+                  'Packets',
+                  (_metrics?.totalPackets ?? _packets.length).toString(),
+                  Icons.stream,
+                  Colors.blue,
+                ),
+                const SizedBox(width: 8),
+                _buildMetricCard(
+                  'Rate',
+                  '${(_metrics?.packetsPerSecond ?? 0).toStringAsFixed(1)}/s',
+                  Icons.speed,
+                  Colors.green,
+                ),
+                const SizedBox(width: 8),
+                _buildMetricCard(
+                  'Protocols',
+                  _protocolStats.length.toString(),
+                  Icons.category,
+                  Colors.purple,
+                ),
+                const SizedBox(width: 8),
+                _buildMetricCard(
+                  'Size',
+                  _formatBytes(_packets.fold(0, (sum, p) => sum + p.size)),
+                  Icons.data_usage,
+                  Colors.orange,
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _buildCompactMetric(
-                'Packets',
-                _packets.length.toString(),
-                Icons.stream,
-                Colors.blue,
-              ),
-              const SizedBox(width: 1, child: VerticalDivider()),
-              _buildCompactMetric(
-                'Sessions',
-                _sessions.length.toString(),
-                Icons.lan,
-                Colors.green,
-              ),
-              const SizedBox(width: 1, child: VerticalDivider()),
-              _buildCompactMetric(
-                'Protocols',
-                _stats.length.toString(),
-                Icons.category,
-                Colors.orange,
-              ),
-              const SizedBox(width: 1, child: VerticalDivider()),
-              _buildCompactMetric(
-                'Rate',
-                _metrics != null
-                    ? '${_metrics!.packetsPerSecond.toStringAsFixed(0)}/s'
-                    : '0/s',
-                Icons.speed,
-                Colors.purple,
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildCompactMetric(
+  Widget _buildMetricCard(
     String label,
     String value,
     IconData icon,
     Color color,
   ) {
     return Expanded(
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
             ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildOptimizedTabBar() {
+  Widget _buildModernTabBar() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
@@ -1276,9 +903,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         unselectedLabelStyle: const TextStyle(fontSize: 13),
         tabs: const [
-          Tab(text: 'Stream', icon: Icon(Icons.stream, size: 16)),
+          Tab(text: 'Live Stream', icon: Icon(Icons.stream, size: 16)),
           Tab(text: 'Analytics', icon: Icon(Icons.analytics, size: 16)),
-          Tab(text: 'Sessions', icon: Icon(Icons.lan, size: 16)),
+          Tab(text: 'Statistics', icon: Icon(Icons.bar_chart, size: 16)),
         ],
       ),
     );
@@ -1288,44 +915,28 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     return TabBarView(
       controller: _tabController,
       children: [
-        _buildOptimizedPacketsTab(),
-        _buildOptimizedAnalyticsTab(),
-        _buildOptimizedSessionsTab(),
+        _buildLiveStreamTab(),
+        _buildAnalyticsTab(),
+        _buildStatisticsTab(),
       ],
     );
   }
 
-  Widget _buildEnhancedFAB() {
-    return FloatingActionButton.extended(
-      onPressed: _toggleCapture,
-      icon: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        child: Icon(
-          _isCapturing ? Icons.stop : Icons.play_arrow,
-          key: ValueKey(_isCapturing),
-        ),
-      ),
-      label: Text(_isCapturing ? 'Stop' : 'Start'),
-      backgroundColor: _isCapturing ? Colors.red : _selectedCaptureMode.color,
-      elevation: 2,
-    );
-  }
-
-  Widget _buildOptimizedPacketsTab() {
+  Widget _buildLiveStreamTab() {
     return Column(
       children: [
-        if (_packets.isNotEmpty) _buildOptimizedProtocolFilter(),
-        Expanded(child: _buildOptimizedPacketList()),
+        if (_packets.isNotEmpty) _buildProtocolFilter(),
+        Expanded(child: _buildEnhancedPacketList()),
       ],
     );
   }
 
-  Widget _buildOptimizedProtocolFilter() {
-    Set<String> protocols = {'ALL'};
+  Widget _buildProtocolFilter() {
+    final protocols = <String>{"ALL"};
     protocols.addAll(_packets.map((p) => p.protocol.toUpperCase()).toSet());
 
     return Container(
-      height: 40,
+      height: 44,
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
@@ -1345,10 +956,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                 ),
               ),
               selected: isSelected,
-              onSelected: (selected) =>
+              selectedColor: _protocolColor(protocol).withOpacity(0.2),
+              checkmarkColor: _protocolColor(protocol),
+              onSelected: (_) =>
                   setState(() => _selectedProtocolFilter = protocol),
-              selectedColor: Theme.of(context).colorScheme.primaryContainer,
-              checkmarkColor: Theme.of(context).colorScheme.primary,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               visualDensity: VisualDensity.compact,
             ),
@@ -1358,142 +969,326 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
-  Widget _buildOptimizedPacketList() {
-    final filteredPackets = _filteredPackets;
+  Widget _buildEnhancedPacketList() {
+    final packets = _filteredPackets;
 
-    if (filteredPackets.isEmpty) {
+    if (packets.isEmpty) {
       return _buildEmptyState();
     }
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       reverse: _autoScroll,
-      itemCount: filteredPackets.length,
+      itemCount: packets.length,
       itemBuilder: (context, index) {
         final packet =
-            filteredPackets[_autoScroll
-                ? (filteredPackets.length - 1 - index)
-                : index];
-        return _buildOptimizedPacketItem(packet, index);
+            packets[_autoScroll ? (packets.length - 1 - index) : index];
+        return _buildOptimizedPacketCard(packet);
       },
     );
   }
 
-  Widget _buildOptimizedPacketItem(PacketInfo packet, int index) {
-    final protocolColor = _getProtocolColor(packet.protocol);
+  Widget _buildOptimizedPacketCard(PacketInfo packet) {
+    final protocolColor = _protocolColor(packet.protocol);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: packet.directionColor.withOpacity(0.2),
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: packet.directionColor.withOpacity(0.3),
           width: 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
       ),
       child: InkWell(
-        onTap: () => _showOptimizedPacketDetails(packet),
-        borderRadius: BorderRadius.circular(8),
+        onTap: () => _showPacketDetails(packet),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: protocolColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      packet.protocol,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: protocolColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: packet.directionColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          packet.isOutgoing
+                              ? Icons.arrow_upward
+                              : Icons.arrow_downward,
+                          size: 12,
+                          color: packet.directionColor,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          packet.displayDirection,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: packet.directionColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    packet.formattedTime,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.data_usage, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${packet.size} bytes',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (packet.flags != null) ...[
+                    const SizedBox(width: 16),
+                    Icon(Icons.flag, size: 14, color: Colors.grey.shade600),
+                    const SizedBox(width: 4),
+                    Text(packet.flags!, style: const TextStyle(fontSize: 11)),
+                  ],
+                  const Spacer(),
+                  Icon(
+                    Icons.chevron_right,
+                    size: 16,
+                    color: Colors.grey.shade400,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildProtocolDistributionCard(),
+          const SizedBox(height: 16),
+          _buildTrafficAnalyticsCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProtocolDistributionCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: protocolColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    packet.protocol,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: protocolColor,
-                    ),
-                  ),
+                Icon(
+                  Icons.pie_chart,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: packet.directionColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    packet.displayDirection,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      color: packet.directionColor,
-                    ),
+                Text(
+                  'Protocol Distribution',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
-                const Spacer(),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_protocolStats.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('No protocol data available'),
+                ),
+              )
+            else
+              ..._protocolStats
+                  .take(5)
+                  .map((stat) => _buildProtocolStatRow(stat)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProtocolStatRow(ProtocolStats stat) {
+    final protocolColor = _protocolColor(stat.protocol);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: protocolColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Text(
+                stat.protocol.isNotEmpty ? stat.protocol.substring(0, 1) : '?',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: protocolColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      stat.protocol,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      '${stat.percentage.toStringAsFixed(1)}%',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: (stat.percentage / 100).clamp(0.0, 1.0),
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation(protocolColor),
+                    minHeight: 4,
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
-                  packet.formattedTime,
+                  '${stat.packetCount} packets',
                   style: TextStyle(
                     fontSize: 10,
                     color: Theme.of(
                       context,
                     ).colorScheme.onSurface.withOpacity(0.6),
-                    fontFamily: 'monospace',
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              '${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrafficAnalyticsCard() {
+    final incomingPackets = _packets.where((p) => !p.isOutgoing).length;
+    final outgoingPackets = _packets.where((p) => p.isOutgoing).length;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
               children: [
-                Icon(Icons.data_usage, size: 12, color: Colors.grey.shade600),
-                const SizedBox(width: 4),
-                Text(
-                  '${packet.size}B',
-                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                ),
-                if (packet.networkType != null) ...[
-                  const SizedBox(width: 12),
-                  Icon(
-                    Icons.network_cell,
-                    size: 12,
-                    color: Colors.grey.shade600,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    packet.networkType!,
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                  ),
-                ],
-                const Spacer(),
                 Icon(
-                  Icons.chevron_right,
-                  size: 16,
-                  color: Colors.grey.shade400,
+                  Icons.trending_up,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Traffic Analytics',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildTrafficCard(
+                  'Incoming',
+                  incomingPackets.toString(),
+                  Icons.arrow_downward,
+                  Colors.green,
+                ),
+                const SizedBox(width: 12),
+                _buildTrafficCard(
+                  'Outgoing',
+                  outgoingPackets.toString(),
+                  Icons.arrow_upward,
+                  Colors.blue,
                 ),
               ],
             ),
@@ -1503,229 +1298,98 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
-  Widget _buildOptimizedAnalyticsTab() {
-    // Placeholder: you can plug charts here later (e.g., using fl_chart)
-    final totalBytes = _stats.fold<int>(0, (s, e) => s + e.totalBytes);
+  Widget _buildTrafficCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatisticsTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.pie_chart,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Protocol Distribution',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (_stats.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text('No protocol stats available'),
-                    )
-                  else
-                    ..._stats.map((stat) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 14,
-                              backgroundColor: _getProtocolColor(stat.protocol),
-                              child: Text(
-                                stat.protocol.isNotEmpty
-                                    ? stat.protocol[0]
-                                    : '?',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                stat.protocol,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            Text('${stat.percentage.toStringAsFixed(1)}%'),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.speed,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Traffic Summary',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _smallStat(
-                          'Total Packets',
-                          _packets.length.toString(),
-                        ),
-                      ),
-                      Expanded(
-                        child: _smallStat(
-                          'Total Bytes',
-                          _formatBytes(totalBytes),
-                        ),
-                      ),
-                      Expanded(
-                        child: _smallStat(
-                          'Active Sessions',
-                          _sessions.length.toString(),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _buildNetworkSummaryCard(),
+          const SizedBox(height: 16),
+          _buildPerformanceMetricsCard(),
         ],
       ),
     );
   }
 
-  Widget _smallStat(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildOptimizedSessionsTab() {
-    if (_sessions.isEmpty)
-      return _buildEmptyState(message: 'No active sessions');
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _sessions.length,
-      itemBuilder: (context, index) {
-        final s = _sessions[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: s.isActive ? Colors.green : Colors.grey,
-              child: Text(s.type, style: const TextStyle(fontSize: 10)),
-            ),
-            title: Text(
-              s.sessionKey,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            ),
-            subtitle: Text(
-              '${s.packetCount} packets • ${_formatBytes(s.totalBytes)}',
-            ),
-            trailing: Chip(
-              label: Text(s.status),
-              backgroundColor: s.isActive
-                  ? Colors.green.shade100
-                  : Colors.grey.shade200,
-              labelStyle: TextStyle(
-                color: s.isActive ? Colors.green : Colors.grey,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildEmptyState({String message = 'No data available'}) {
-    return Center(
+  Widget _buildNetworkSummaryCard() {
+    return Card(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              _currentTab == 0
-                  ? Icons.stream
-                  : _currentTab == 1
-                  ? Icons.analytics
-                  : Icons.lan,
-              size: 48,
-              color: Colors.grey.shade400,
+            Row(
+              children: [
+                Icon(
+                  Icons.network_check,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Network Summary',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
-            Text(
-              message,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
+            _buildSummaryRow('Total Packets', _packets.length.toString()),
+            _buildSummaryRow(
+              'Unique Protocols',
+              _protocolStats.length.toString(),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Start capturing to monitor traffic',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            _buildSummaryRow('Capture Mode', _selectedCaptureMode.title),
+            _buildSummaryRow(
+              'Device Status',
+              _isRooted ? 'Rooted' : 'Standard',
             ),
-            if (!_isCapturing) ...[
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _toggleCapture,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Start Capture'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _selectedCaptureMode.color,
-                  foregroundColor: Colors.white,
-                ),
+            if (_metrics != null) ...[
+              _buildSummaryRow(
+                'Packet Rate',
+                '${_metrics!.packetsPerSecond.toStringAsFixed(1)}/s',
               ),
             ],
           ],
@@ -1734,35 +1398,161 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
-  // ============= Dialogs & Menus (implemented) =============
-  void _showOptimizedPacketDetails(PacketInfo packet) {
+  Widget _buildPerformanceMetricsCard() {
+    final avgPacketSize = _packets.isNotEmpty
+        ? _packets.map((p) => p.size).reduce((a, b) => a + b) / _packets.length
+        : 0.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.speed,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Performance Metrics',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildSummaryRow(
+              'Average Packet Size',
+              '${avgPacketSize.toStringAsFixed(1)} bytes',
+            ),
+            _buildSummaryRow(
+              'Buffer Utilization',
+              '${(_packets.length / _maxPackets * 100).toStringAsFixed(1)}%',
+            ),
+            _buildSummaryRow(
+              'Capture Status',
+              _isCapturing ? 'Active' : 'Stopped',
+            ),
+            _buildSummaryRow('Performance Mode', 'Optimized'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.stream, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              'No packets captured yet',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Start capturing to monitor network traffic',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _toggleCapture,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Start Capture'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _selectedCaptureMode.color,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnhancedFAB() {
+    return FloatingActionButton.extended(
+      onPressed: _toggleCapture,
+      icon: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: Icon(
+          _isCapturing ? Icons.stop : Icons.play_arrow,
+          key: ValueKey(_isCapturing),
+        ),
+      ),
+      label: Text(_isCapturing ? 'Stop' : 'Start'),
+      backgroundColor: _isCapturing ? Colors.red : _selectedCaptureMode.color,
+      elevation: 3,
+    );
+  }
+
+  // ================= DIALOG & UTILITY METHODS =================
+
+  void _showPacketDetails(PacketInfo packet) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: ConstrainedBox(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.8,
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
             maxWidth: MediaQuery.of(context).size.width * 0.9,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: _getProtocolColor(packet.protocol),
+                  color: _protocolColor(packet.protocol),
                   borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    topRight: Radius.circular(12),
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
                   ),
                 ),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 22,
-                      backgroundColor: Colors.white.withOpacity(0.2),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       child: Text(
                         packet.protocol.isNotEmpty
                             ? packet.protocol.substring(0, 1)
@@ -1774,7 +1564,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1788,9 +1578,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                             ),
                           ),
                           Text(
-                            '${packet.protocol.toUpperCase()} • ${packet.displayDirection} • ${packet.formattedTime}',
+                            '${packet.protocol} • ${packet.displayDirection} • ${packet.formattedTime}',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.white.withOpacity(0.8),
                               fontSize: 12,
                             ),
                           ),
@@ -1804,88 +1594,45 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   ],
                 ),
               ),
-              Expanded(
+              Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildDetailSection('Network Information', [
-                        _buildDetailItem(
+                        _buildDetailRow(
                           'Source',
                           '${packet.sourceIp}:${packet.sourcePort}',
-                          Icons.arrow_upward,
                         ),
-                        _buildDetailItem(
+                        _buildDetailRow(
                           'Destination',
                           '${packet.destinationIp}:${packet.destinationPort}',
-                          Icons.arrow_downward,
                         ),
-                        _buildDetailItem(
-                          'Protocol',
-                          packet.protocol,
-                          Icons.language,
-                        ),
+                        _buildDetailRow('Protocol', packet.protocol),
+                        _buildDetailRow('Direction', packet.displayDirection),
                       ]),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
                       _buildDetailSection('Packet Information', [
-                        _buildDetailItem(
-                          'Size',
-                          '${packet.size} bytes',
-                          Icons.data_usage,
-                        ),
-                        _buildDetailItem(
-                          'Timestamp',
-                          packet.formattedTime,
-                          Icons.access_time,
-                        ),
-                        if (packet.direction != null)
-                          _buildDetailItem(
-                            'Direction',
-                            packet.direction!,
-                            Icons.swap_horiz,
-                          ),
-                        if (packet.ttl != null)
-                          _buildDetailItem(
-                            'TTL',
-                            packet.ttl.toString(),
-                            Icons.timer,
-                          ),
+                        _buildDetailRow('Size', '${packet.size} bytes'),
+                        _buildDetailRow('Timestamp', packet.formattedTime),
                         if (packet.flags != null)
-                          _buildDetailItem('Flags', packet.flags!, Icons.flag),
+                          _buildDetailRow('Flags', packet.flags!),
                       ]),
-                      if (packet.networkType != null ||
-                          packet.isVpnTraffic != null)
-                        const SizedBox(height: 12),
-                      if (packet.networkType != null ||
-                          packet.isVpnTraffic != null)
-                        _buildDetailSection('Additional', [
-                          if (packet.networkType != null)
-                            _buildDetailItem(
-                              'Network',
-                              packet.networkType!,
-                              Icons.wifi,
-                            ),
-                          if (packet.isVpnTraffic != null)
-                            _buildDetailItem(
-                              'VPN Traffic',
-                              packet.isVpnTraffic! ? 'Yes' : 'No',
-                              Icons.vpn_key,
-                            ),
-                        ]),
                       if (packet.payload.isNotEmpty) ...[
                         const SizedBox(height: 16),
-                        const Text(
-                          'Payload',
+                        Text(
+                          'Payload Data',
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 16,
                             fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(8),
@@ -1918,172 +1665,284 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         Text(
           title,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 16,
             fontWeight: FontWeight.bold,
             color: Theme.of(context).colorScheme.primary,
           ),
         ),
         const SizedBox(height: 8),
-        ...children,
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceVariant.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildDetailItem(String label, String value, IconData icon) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(8),
-      ),
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(
-              icon,
-              size: 16,
-              color: Theme.of(context).colorScheme.primary,
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
           ),
-          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                SelectableText(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+            child: SelectableText(value, style: const TextStyle(fontSize: 12)),
           ),
         ],
       ),
     );
   }
 
-  void _showOptionsMenu(BuildContext context) {
+  void _showCaptureModeSelector() {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (c) => SafeArea(
-        child: Wrap(
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              leading: const Icon(Icons.tune),
-              title: const Text('Change Capture Mode'),
-              onTap: () {
-                Navigator.pop(c);
-                _showCaptureModeSelector();
-              },
+            Row(
+              children: [
+                Icon(Icons.tune, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Select Capture Mode',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.clear_all),
-              title: const Text('Clear Data'),
-              onTap: () {
-                Navigator.pop(c);
-                _clearAllData();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.save_alt),
-              title: const Text('Export PCAP (coming soon)'),
-              onTap: () {
-                Navigator.pop(c);
-                _showOptimizedSnackBar(
-                  'Export coming soon',
-                  Colors.orange,
-                  Icons.file_download,
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('About'),
-              onTap: () {
-                Navigator.pop(c);
-                showAboutDialog(
-                  context: context,
-                  applicationName: 'NetFlow Pro',
-                  applicationVersion: '3.0.0',
-                  children: [const Text('Professional-grade packet analyzer')],
-                );
-              },
-            ),
+            const SizedBox(height: 20),
+            ...CaptureMode.values.map((mode) => _buildModeOption(mode)),
+            const SizedBox(height: 8),
+            if (!_isRooted)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Root access required for enhanced capture modes',
+                        style: TextStyle(fontSize: 12, color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  // ============= Utilities ============
-  Color _getProtocolColor(String protocol) {
-    switch (protocol.toUpperCase()) {
-      case 'TCP':
-        return const Color(0xFF3B82F6);
-      case 'UDP':
-        return const Color(0xFF10B981);
-      case 'HTTP':
-        return const Color(0xFFF59E0B);
-      case 'HTTPS':
-        return const Color(0xFF8B5CF6);
-      case 'DNS':
-        return const Color(0xFF14B8A6);
-      case 'ICMP':
-        return const Color(0xFFEF4444);
-      case 'SSH':
-        return const Color(0xFF6366F1);
-      default:
-        return const Color(0xFF6B7280);
+  Widget _buildModeOption(CaptureMode mode) {
+    final isSelected = _selectedCaptureMode == mode;
+    final isEnabled = mode == CaptureMode.vpn || _isRooted;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isEnabled
+              ? () {
+                  setState(() => _selectedCaptureMode = mode);
+                  Navigator.pop(context);
+                  _showSnackBar(
+                    "${mode.title} selected",
+                    mode.color,
+                    mode.icon,
+                  );
+                }
+              : null,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? mode.color.withOpacity(0.1)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected ? mode.color : Colors.grey.shade300,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isEnabled
+                        ? mode.color.withOpacity(0.1)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    mode.icon,
+                    color: isEnabled ? mode.color : Colors.grey,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        mode.title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: isEnabled ? null : Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        mode.description,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isEnabled
+                              ? Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withOpacity(0.6)
+                              : Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isSelected)
+                  Icon(Icons.check_circle, color: mode.color, size: 24),
+                if (!isEnabled)
+                  Icon(Icons.lock, color: Colors.grey.shade400, size: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _handleMenuSelection(String value) {
+    switch (value) {
+      case 'mode':
+        _showCaptureModeSelector();
+        break;
+      case 'clear':
+        _clearAllData();
+        break;
+      case 'settings':
+        _showSettingsDialog();
+        break;
+      case 'about':
+        _showAboutDialog();
+        break;
     }
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '${bytes}B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
-    if (bytes < 1024 * 1024 * 1024)
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)}GB';
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile(
+              title: const Text('Auto-scroll packets'),
+              subtitle: const Text('Automatically scroll to newest packets'),
+              value: _autoScroll,
+              onChanged: (value) {
+                setState(() => _autoScroll = value);
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    if (minutes > 0) return '${minutes}m ${seconds}s';
-    return '${seconds}s';
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('About NetFlow Pro'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Professional Network Packet Analyzer'),
+            SizedBox(height: 8),
+            Text('Version 5.1.0 • Merged Edition'),
+            SizedBox(height: 16),
+            Text('Features:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('• Real-time packet capture & analysis'),
+            Text('• Multiple capture modes (VPN, Root, PCAP)'),
+            Text('• Advanced protocol analytics & statistics'),
+            Text('• Professional UI with Material 3 design'),
+            Text('• Export functionality for captured packets'),
+            Text('• Comprehensive packet inspection'),
+            Text('• Performance optimized with buffering'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   void dispose() {
-    print("🔄 PacketAnalyzerScreen disposing...");
     _debounceTimer?.cancel();
-    _packetSubscription?.cancel();
-    _statsSubscription?.cancel();
-    _sessionsSubscription?.cancel();
-    _metricsSubscription?.cancel();
-    _statusSubscription?.cancel();
+    _packetSub?.cancel();
+    _statusSub?.cancel();
+    _metricsSub?.cancel();
+    _statsSub?.cancel();
     _tabController.dispose();
     _pulseController.dispose();
+    PacketService.disposeService();
     super.dispose();
   }
 }

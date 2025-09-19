@@ -22,19 +22,16 @@ class MainActivity : FlutterActivity() {
         Log.d(TAG, "Configuring Flutter engine")
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-        PacketVpnService.methodChannel = methodChannel
 
-        // Register channel with NativeInterface (so C++ can send packets/stats/status)
+        PacketVpnService.methodChannel = methodChannel
         NativeInterface.setMethodChannel(methodChannel)
 
         methodChannel.setMethodCallHandler { call, result ->
             Log.d(TAG, "Received method call: ${call.method}")
             when (call.method) {
-                // VPN handling
                 "startVpnService" -> startVpnService(result)
                 "stopVpnService" -> stopVpnService(result)
 
-                // Rooted capture handling
                 "startRootedCapture" -> {
                     NativeInterface.nativeStartRootedCapture()
                     result.success(true)
@@ -43,13 +40,45 @@ class MainActivity : FlutterActivity() {
                     NativeInterface.nativeStopRootedCapture()
                     result.success(true)
                 }
-
+                "startPcapCapture" -> {
+                    try {
+                        NativeInterface.nativeStartRootedCapture()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error starting PCAP capture", e)
+                        result.success(false)
+                    }
+                }
+                "stopPcapCapture" -> {
+                    try {
+                        NativeInterface.nativeStopRootedCapture()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error stopping PCAP capture", e)
+                        result.success(false)
+                    }
+                }
+                "isDeviceRooted" -> {
+                    val rooted = NativeInterface.isDeviceRooted()
+                    result.success(rooted)
+                }
+                "getAvailableInterfaces" -> {
+                    val interfaces = NativeInterface.getAvailableInterfaces()
+                    result.success(interfaces)
+                }
+                "exportPackets" -> {
+                    val path = NativeInterface.exportPackets(applicationContext)
+                    if (path != null) {
+                        result.success(path)
+                    } else {
+                        result.error("EXPORT_FAILED", "Unable to export packets", null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
     }
 
-    // ---- VPN management ----
     private fun startVpnService(result: MethodChannel.Result) {
         Log.d(TAG, "Starting VPN service")
         if (pendingResult != null) {
@@ -58,18 +87,15 @@ class MainActivity : FlutterActivity() {
         }
         val intent = VpnService.prepare(this)
         if (intent != null) {
-            Log.d(TAG, "VPN permission required, requesting…")
             pendingResult = result
             startActivityForResult(intent, VPN_REQUEST_CODE)
         } else {
-            Log.d(TAG, "VPN permission already granted, starting service")
             startVpnForeground()
             result.success(true)
         }
     }
 
     private fun stopVpnService(result: MethodChannel.Result) {
-        Log.d(TAG, "Stopping VPN service")
         val vpnIntent = Intent(this, PacketVpnService::class.java)
         stopService(vpnIntent)
         result.success(true)
@@ -84,11 +110,9 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == Activity.RESULT_OK) {
-                Log.d(TAG, "VPN permission granted, starting service")
                 startVpnForeground()
                 pendingResult?.success(true)
             } else {
-                Log.d(TAG, "VPN permission denied")
                 pendingResult?.success(false)
             }
             pendingResult = null

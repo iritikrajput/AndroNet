@@ -1,44 +1,17 @@
 package com.example.packet_analyzer
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
+import android.app.*
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.os.ParcelFileDescriptor
+import android.os.*
 import android.util.Log
-import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.IOException
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.InetAddress
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.channels.DatagramChannel
-import java.nio.channels.SocketChannel
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
+import java.io.*
+import java.net.*
+import java.nio.*
+import java.nio.channels.*
+import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.min
-
-/**
- * PacketVpnService.kt
- *
- * Session-based TCP/UDP forwarding VPN service for packet capture + real internet passthrough.
- *
- * Caveats:
- *  - Provides best-effort TCP forwarding; not a full TCP stack.
- *  - Should be tested thoroughly. Use DNS/UDP first, then HTTP.
- */
 
 class PacketVpnService : VpnService() {
 
@@ -51,9 +24,8 @@ class PacketVpnService : VpnService() {
         private const val SESSION_TIMEOUT_MS = 30_000L
         private const val CLEANUP_INTERVAL_SEC = 10L
 
-        // Exposed by MainActivity
-        var methodChannel: MethodChannel? = null
-        var eventSink: EventChannel.EventSink? = null
+        // MethodChannel injected from MainActivity
+        lateinit var methodChannel: MethodChannel
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -65,7 +37,6 @@ class PacketVpnService : VpnService() {
     private val tcpSessions = ConcurrentHashMap<String, TcpSession>()
     private val udpSessions = ConcurrentHashMap<String, UdpSession>()
 
-    // Simple data classes for sessions
     private data class TcpSession(
         val srcIp: InetAddress, val srcPort: Int,
         val dstIp: InetAddress, val dstPort: Int,
@@ -111,6 +82,7 @@ class PacketVpnService : VpnService() {
             startPacketLoop()
             startSessionCleanup()
             Log.d(TAG, "VPN capture started")
+            NativeInterface.sendStatusUpdate(true, "vpn")
         } catch (e: Exception) {
             Log.e(TAG, "Error establishing VPN", e)
             stopSelf()
@@ -128,9 +100,7 @@ class PacketVpnService : VpnService() {
                     val len = input.read(buffer)
                     if (len > 0) {
                         val pkt = buffer.copyOf(len)
-                        // 1) Send summary to Flutter (EventChannel)
                         processPacketForDisplay(pkt, len)
-                        // 2) Forward to network using session forwarding
                         forwardPacketWithSessions(pkt, len, output)
                     }
                 } catch (e: IOException) {
@@ -146,6 +116,7 @@ class PacketVpnService : VpnService() {
         }
     }
 
+    // ✅ Improved protocol detection with port-based classification
     private fun processPacketForDisplay(buffer: ByteArray, length: Int) {
         try {
             if (length < 20) return
@@ -161,36 +132,46 @@ class PacketVpnService : VpnService() {
             var srcPort = 0
             var dstPort = 0
             var protoName = "IP-$protocol"
-            if (protocol == 6 || protocol == 17) {
-                if (length >= ihl + 4) {
-                    srcPort = ((buffer[ihl].toInt() and 0xFF) shl 8) or (buffer[ihl + 1].toInt() and 0xFF)
-                    dstPort = ((buffer[ihl + 2].toInt() and 0xFF) shl 8) or (buffer[ihl + 3].toInt() and 0xFF)
-                    protoName = if (protocol == 6) "TCP" else "UDP"
+
+            if (protocol == 6 && length >= ihl + 4) { // TCP
+                srcPort = ((buffer[ihl].toInt() and 0xFF) shl 8) or (buffer[ihl + 1].toInt() and 0xFF)
+                dstPort = ((buffer[ihl + 2].toInt() and 0xFF) shl 8) or (buffer[ihl + 3].toInt() and 0xFF)
+                protoName = when (dstPort) {
+                    80, 8080 -> "HTTP"
+                    443 -> "HTTPS"
+                    else -> "TCP"
+                }
+            } else if (protocol == 17 && length >= ihl + 4) { // UDP
+                srcPort = ((buffer[ihl].toInt() and 0xFF) shl 8) or (buffer[ihl + 1].toInt() and 0xFF)
+                dstPort = ((buffer[ihl + 2].toInt() and 0xFF) shl 8) or (buffer[ihl + 3].toInt() and 0xFF)
+                protoName = when (dstPort) {
+                    53 -> "DNS"
+                    123 -> "NTP"
+                    else -> "UDP"
                 }
             } else if (protocol == 1) {
                 protoName = "ICMP"
             }
 
-            val packetInfo = mapOf(
-                "sourceIp" to srcIp,
-                "destinationIp" to dstIp,
-                "sourcePort" to srcPort,
-                "destinationPort" to dstPort,
-                "protocol" to protoName,
-                "size" to length,
-                "timestamp" to System.currentTimeMillis().toString()
-            )
-
-            // Send to Flutter (EventChannel preferred; MethodChannel fallback)
             mainHandler.post {
-                try { eventSink?.success(packetInfo) } catch (_: Exception) {}
-                try { methodChannel?.invokeMethod("onPacketReceived", packetInfo) } catch (_: Exception) {}
+                try {
+                    NativeInterface.sendPacketToFlutter(
+                        srcIp, dstIp,
+                        srcPort, dstPort,
+                        protoName, length,
+                        System.currentTimeMillis().toString(),
+                        ""
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending packet to Flutter", e)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing packet for display", e)
         }
     }
 
+    // Forwarding logic unchanged
     private fun forwardPacketWithSessions(buffer: ByteArray, length: Int, outputStream: FileOutputStream) {
         try {
             if (length < 20) return
@@ -201,11 +182,8 @@ class PacketVpnService : VpnService() {
             when (protocol) {
                 6 -> forwardTcp(buffer, length, srcIp, dstIp, outputStream)
                 17 -> forwardUdp(buffer, length, srcIp, dstIp, outputStream)
-                else -> {
-                    // For unsupported protocols, do a quick passthrough (write same packet back)
-                    synchronized(outputStream) {
-                        outputStream.write(buffer, 0, length)
-                    }
+                else -> synchronized(outputStream) {
+                    outputStream.write(buffer, 0, length)
                 }
             }
         } catch (e: Exception) {
@@ -538,7 +516,6 @@ class PacketVpnService : VpnService() {
         return checksum.toShort()
     }
 
-    // ---- Session cleanup ----
     private fun startSessionCleanup() {
         scheduled.scheduleAtFixedRate({
             try {
@@ -553,7 +530,6 @@ class PacketVpnService : VpnService() {
         }, CLEANUP_INTERVAL_SEC, CLEANUP_INTERVAL_SEC, TimeUnit.SECONDS)
     }
 
-    // ---- Notifications ----
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel("VPN_CHANNEL", "VPN Service", NotificationManager.IMPORTANCE_LOW)
@@ -563,9 +539,11 @@ class PacketVpnService : VpnService() {
     }
 
     private fun createNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, "VPN_CHANNEL")
                 .setContentTitle("Packet Analyzer Active")
@@ -593,12 +571,12 @@ class PacketVpnService : VpnService() {
         try { scheduled.shutdownNow() } catch (_: Exception) {}
         try { executor.shutdownNow() } catch (_: Exception) {}
 
-        // Cleanup sessions
         tcpSessions.values.forEach { try { it.channel.close() } catch (_: Exception) {} }
         tcpSessions.clear()
         udpSessions.values.forEach { try { it.channel.close() } catch (_: Exception) {} }
         udpSessions.clear()
 
+        NativeInterface.sendStatusUpdate(false, "vpn")
         super.onDestroy()
     }
 }
