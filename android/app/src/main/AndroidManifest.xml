@@ -7,22 +7,21 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Storage (deprecated after Android 10) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
-    <!-- For Android 11+ (optional full access) -->
+    <!-- If needed on Android 11+ -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
     <!-- VPN permission -->
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
 
-    <!-- Root permissions (optional) -->
-    <uses-permission android:name="android.permission.ACCESS_SUPERUSER" />
-
-    <!-- Wake lock for background processing -->
+    <!-- Background wake lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
@@ -45,7 +44,7 @@
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <intent-filter android:autoVerify="true">
+            <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
@@ -56,11 +55,7 @@
             android:name=".PacketVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|dataSync">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
+            android:foregroundServiceType="connectedDevice|dataSync|mediaProjection" />
 
         <meta-data
             android:name="flutterEmbedding"

@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.*
 import android.util.Log
-import io.flutter.plugin.common.MethodChannel
 import java.io.*
 import java.net.*
 import java.nio.*
@@ -23,9 +22,6 @@ class PacketVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1
         private const val SESSION_TIMEOUT_MS = 30_000L
         private const val CLEANUP_INTERVAL_SEC = 10L
-
-        // MethodChannel injected from MainActivity
-        lateinit var methodChannel: MethodChannel
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -116,7 +112,6 @@ class PacketVpnService : VpnService() {
         }
     }
 
-    // ✅ Improved protocol detection with port-based classification
     private fun processPacketForDisplay(buffer: ByteArray, length: Int) {
         try {
             if (length < 20) return
@@ -171,7 +166,7 @@ class PacketVpnService : VpnService() {
         }
     }
 
-    // Forwarding logic unchanged
+    // ✅ Only one version now
     private fun forwardPacketWithSessions(buffer: ByteArray, length: Int, outputStream: FileOutputStream) {
         try {
             if (length < 20) return
@@ -202,13 +197,11 @@ class PacketVpnService : VpnService() {
 
             var session = tcpSessions[key]
             if (session == null) {
-                // Create non-blocking socket and protect it
                 val sc = SocketChannel.open()
                 sc.configureBlocking(false)
-                protect(sc.socket()) // prevent VPN loop
+                protect(sc.socket())
                 try {
                     sc.connect(InetSocketAddress(dstIp, dstPort))
-                    // Wait shortly for connect
                     val start = System.currentTimeMillis()
                     val timeout = 2000L
                     while (!sc.finishConnect()) {
@@ -228,20 +221,17 @@ class PacketVpnService : VpnService() {
 
                 session = TcpSession(srcIp, srcPort, dstIp, dstPort, sc)
                 tcpSessions[key] = session
-                // Start reading responses
                 executor.execute { readTcpResponses(session, outputStream) }
                 Log.d(TAG, "New TCP session: $key")
             }
 
             session.lastActivity = System.currentTimeMillis()
 
-            // Extract TCP payload and write to remote socket
             val tcpHeaderLen = ((buffer[ihl + 12].toInt() and 0xF0) shr 4) * 4
             val payloadStart = ihl + tcpHeaderLen
             if (payloadStart < length) {
                 val payloadLen = length - payloadStart
                 val payload = ByteBuffer.wrap(buffer, payloadStart, payloadLen)
-                // Non-blocking write; try until all bytes written or small retries
                 var remain = payloadLen
                 var attempts = 0
                 while (remain > 0 && attempts < 100) {
@@ -253,8 +243,6 @@ class PacketVpnService : VpnService() {
                         remain -= written
                     }
                 }
-            } else {
-                // it's likely a pure ACK or SYN; still nothing to send to remote
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in forwardTcp", e)
@@ -272,7 +260,6 @@ class PacketVpnService : VpnService() {
                     val data = ByteArray(read)
                     buffer.flip()
                     buffer.get(data, 0, read)
-                    // Build a synthetic IP/TCP packet from remote->local data
                     val packet = buildTcpResponsePacket(session, data, read)
                     synchronized(outputStream) {
                         try {
@@ -285,7 +272,6 @@ class PacketVpnService : VpnService() {
                 } else if (read == -1) {
                     break
                 } else {
-                    // no data; sleep briefly to avoid busy loop
                     Thread.sleep(2)
                 }
             }
@@ -333,7 +319,6 @@ class PacketVpnService : VpnService() {
             if (payloadStart < length) {
                 val payloadLen = length - payloadStart
                 val payload = ByteBuffer.wrap(buffer, payloadStart, payloadLen)
-                // write to datagram channel
                 var attempts = 0
                 while (payload.hasRemaining() && attempts < 10) {
                     val written = session.channel.write(payload)
@@ -388,50 +373,40 @@ class PacketVpnService : VpnService() {
     }
 
     // ---- Packet builders (IP + TCP/UDP header + payload) ----
-    // Note: simplified headers. For robust TCP behavior, full seq/ack handling is required.
-
     private fun buildTcpResponsePacket(session: TcpSession, data: ByteArray, dataLen: Int): ByteArray {
-        // IP(20) + TCP(20) + data
         val ipLen = 20
         val tcpLen = 20
         val total = ipLen + tcpLen + dataLen
         val buf = ByteBuffer.allocate(total).order(ByteOrder.BIG_ENDIAN)
 
-        // IP header
         val versionIhl = (4 shl 4) or (ipLen / 4)
-        buf.put(versionIhl.toByte()) // v + ihl
-        buf.put(0.toByte()) // tos
-        buf.putShort((total).toShort()) // total length
-        buf.putShort(0.toShort()) // id
-        buf.putShort(0.toShort()) // flags+frag
-        buf.put(64.toByte()) // TTL
-        buf.put(6.toByte()) // protocol TCP
-        buf.putShort(0.toShort()) // checksum placeholder
-        // source = remote server, dest = device VPN IP
+        buf.put(versionIhl.toByte())
+        buf.put(0.toByte())
+        buf.putShort(total.toShort())
+        buf.putShort(0.toShort())
+        buf.putShort(0.toShort())
+        buf.put(64.toByte())
+        buf.put(6.toByte())
+        buf.putShort(0.toShort())
         buf.put(session.dstIp.address)
         buf.put(session.srcIp.address)
 
-        // compute IP checksum
         val ipArr = buf.array()
         val ipChecksum = calculateChecksum(ipArr, 0, ipLen)
         buf.putShort(10, ipChecksum)
 
-        // TCP header
         buf.position(ipLen)
-        buf.putShort(session.dstPort.toShort()) // source port (remote)
-        buf.putShort(session.srcPort.toShort()) // dest port (device)
-        buf.putInt(0) // seq (simplified)
-        buf.putInt(0) // ack (simplified)
-        // data offset (5) << 4, flags (PSH+ACK = 0x18)
+        buf.putShort(session.dstPort.toShort())
+        buf.putShort(session.srcPort.toShort())
+        buf.putInt(0)
+        buf.putInt(0)
         buf.putShort(((tcpLen / 4) shl 12 or 0x018).toShort())
-        buf.putShort(8192.toShort()) // window
-        buf.putShort(0.toShort()) // checksum placeholder
-        buf.putShort(0.toShort()) // urgent pointer
+        buf.putShort(8192.toShort())
+        buf.putShort(0.toShort())
+        buf.putShort(0.toShort())
 
-        // data
         buf.put(data, 0, dataLen)
 
-        // compute TCP checksum (pseudo-header)
         val tcpChecksum = calculateTcpChecksum(buf.array(), ipLen, tcpLen + dataLen)
         buf.putShort(ipLen + 16, tcpChecksum)
 
@@ -444,7 +419,6 @@ class PacketVpnService : VpnService() {
         val total = ipLen + udpLen + dataLen
         val buf = ByteBuffer.allocate(total).order(ByteOrder.BIG_ENDIAN)
 
-        // IP header
         val versionIhl = (4 shl 4) or (ipLen / 4)
         buf.put(versionIhl.toByte())
         buf.put(0.toByte())
@@ -452,7 +426,7 @@ class PacketVpnService : VpnService() {
         buf.putShort(0.toShort())
         buf.putShort(0.toShort())
         buf.put(64.toByte())
-        buf.put(17.toByte()) // UDP
+        buf.put(17.toByte())
         buf.putShort(0.toShort())
         buf.put(session.dstIp.address)
         buf.put(session.srcIp.address)
@@ -461,14 +435,12 @@ class PacketVpnService : VpnService() {
         val ipChecksum = calculateChecksum(ipArr, 0, ipLen)
         buf.putShort(10, ipChecksum)
 
-        // UDP header
         buf.position(ipLen)
-        buf.putShort(session.dstPort.toShort()) // source (remote)
-        buf.putShort(session.srcPort.toShort()) // dest (device)
+        buf.putShort(session.dstPort.toShort())
+        buf.putShort(session.srcPort.toShort())
         buf.putShort((udpLen + dataLen).toShort())
-        buf.putShort(0.toShort()) // checksum (optional in IPv4)
+        buf.putShort(0.toShort())
 
-        // data
         buf.put(data, 0, dataLen)
         return buf.array()
     }
@@ -492,15 +464,12 @@ class PacketVpnService : VpnService() {
 
     private fun calculateTcpChecksum(packet: ByteArray, tcpOffset: Int, tcpLen: Int): Short {
         var sum = 0L
-        // pseudo-header: src(4) + dst(4) + protocol(1) + tcpLen(2)
-        // packet contains IP header in bytes 0..19
-        // src ip bytes 12..15, dst ip 16..19
         sum += ((packet[12].toInt() and 0xFF) shl 8) + (packet[13].toInt() and 0xFF)
         sum += ((packet[14].toInt() and 0xFF) shl 8) + (packet[15].toInt() and 0xFF)
         sum += ((packet[16].toInt() and 0xFF) shl 8) + (packet[17].toInt() and 0xFF)
         sum += ((packet[18].toInt() and 0xFF) shl 8) + (packet[19].toInt() and 0xFF)
-        sum += 6 // protocol number for TCP
-        sum += tcpLen // tcp length
+        sum += 6
+        sum += tcpLen
 
         var i = tcpOffset
         while (i < tcpOffset + tcpLen) {

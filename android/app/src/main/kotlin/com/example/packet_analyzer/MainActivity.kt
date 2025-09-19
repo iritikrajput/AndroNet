@@ -23,7 +23,7 @@ class MainActivity : FlutterActivity() {
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
-        PacketVpnService.methodChannel = methodChannel
+        // ✅ Use NativeInterface bridge only
         NativeInterface.setMethodChannel(methodChannel)
 
         methodChannel.setMethodCallHandler { call, result ->
@@ -31,49 +31,6 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "startVpnService" -> startVpnService(result)
                 "stopVpnService" -> stopVpnService(result)
-
-                "startRootedCapture" -> {
-                    NativeInterface.nativeStartRootedCapture()
-                    result.success(true)
-                }
-                "stopRootedCapture" -> {
-                    NativeInterface.nativeStopRootedCapture()
-                    result.success(true)
-                }
-                "startPcapCapture" -> {
-                    try {
-                        NativeInterface.nativeStartRootedCapture()
-                        result.success(true)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error starting PCAP capture", e)
-                        result.success(false)
-                    }
-                }
-                "stopPcapCapture" -> {
-                    try {
-                        NativeInterface.nativeStopRootedCapture()
-                        result.success(true)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error stopping PCAP capture", e)
-                        result.success(false)
-                    }
-                }
-                "isDeviceRooted" -> {
-                    val rooted = NativeInterface.isDeviceRooted()
-                    result.success(rooted)
-                }
-                "getAvailableInterfaces" -> {
-                    val interfaces = NativeInterface.getAvailableInterfaces()
-                    result.success(interfaces)
-                }
-                "exportPackets" -> {
-                    val path = NativeInterface.exportPackets(applicationContext)
-                    if (path != null) {
-                        result.success(path)
-                    } else {
-                        result.error("EXPORT_FAILED", "Unable to export packets", null)
-                    }
-                }
                 else -> result.notImplemented()
             }
         }
