@@ -8,21 +8,28 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- Storage (deprecated after Android 10) -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
-
-    <!-- If needed on Android 11+ -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
-
-    <!-- VPN permission -->
+    <!-- VPN permission (⚡ Required for VpnService) -->
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
+
+    <!-- Storage (deprecated after Android 10, but added for backward compatibility) -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- Optional: if you truly need MANAGE_EXTERNAL_STORAGE on Android 11+ -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <!-- Background wake lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Biometric authentication permissions -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
     <application
         android:label="Packet Analyzer"
@@ -45,17 +52,65 @@
                 android:resource="@style/NormalTheme" />
 
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- VPN Service -->
+        <!-- ZDTUN VPN Service (Using PCAPdroid's zdtun library) -->
+        <service
+            android:name=".ZdtunVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true"
+            android:foregroundServiceType="connectedDevice|dataSync">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <!-- Previous NIO attempt -->
+        <service
+            android:name=".FinalWorkingVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
+            android:enabled="false" />
+
+        <!-- Previous complex attempts (disabled) -->
+        <service
+            android:name=".ProductionVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
+            android:enabled="false" />
+
+        <!-- Previous implementations (disabled) -->
+        <service
+            android:name=".ProperVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
+            android:enabled="false"
+            android:foregroundServiceType="connectedDevice|dataSync" />
+
+        <!-- Alternative implementations (disabled) -->
+        <service
+            android:name=".CompleteVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
+            android:enabled="false"
+            android:foregroundServiceType="connectedDevice|dataSync" />
+
+        <!-- Legacy services kept for reference but not used -->
         <service
             android:name=".PacketVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|dataSync|mediaProjection" />
+            android:enabled="false"
+            android:foregroundServiceType="connectedDevice|dataSync" />
+
+        <service
+            android:name=".NetHunterService"
+            android:enabled="false"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice|dataSync" />
 
         <meta-data
             android:name="flutterEmbedding"

@@ -24,7 +24,7 @@ if (flutterVersionName == null) {
 
 android {
     namespace 'com.example.packet_analyzer'
-    compileSdk 34
+    compileSdk 35
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -38,25 +38,32 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        main.jniLibs.srcDirs += 'libs' // Ensure .so from tun2socks.aar is available
     }
 
     defaultConfig {
         applicationId "com.example.packet_analyzer"
         minSdkVersion 21
-        targetSdkVersion 34
+        targetSdkVersion 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
-        
+
         ndk {
-            abiFilters 'arm64-v8a'
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
         }
-        
+
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++14"
+                cppFlags ""
                 arguments "-DANDROID_STL=c++_shared"
-                version "3.22.1"  // Updated to use a more common version
             }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "CMakeLists.txt"
+            version "3.22.1"
         }
     }
 
@@ -65,19 +72,36 @@ android {
             signingConfig signingConfigs.debug
         }
     }
-    
-    externalNativeBuild {
-        cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            version "3.22.1"  // Updated version
-        }
-    }
 }
 
 flutter {
     source '../..'
 }
 
+repositories {
+    flatDir {
+        dirs 'libs' // Where tun2socks.aar lives
+    }
+}
+
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+
+    // Biometric authentication
+    implementation 'androidx.biometric:biometric:1.1.0'
+
+    // Kotlin Coroutines for packet capture
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
+
+    // Import the tun2socks AAR
+    implementation(name: "tun2socks", ext: "aar") {
+        // Exclude duplicate Go runtime classes to avoid "Duplicate class go.Seq" error
+        exclude group: "go"
+    }
+}
+
+// Clean up duplicates in case other transitive deps bring Go classes
+configurations.all {
+    exclude group: "go"
 }

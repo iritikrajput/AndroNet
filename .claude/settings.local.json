@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ide__getDiagnostics",
+      "Bash(flutter:*)",
+      "Bash(nc localhost 10112)",
+      "Bash(adb:*)",
+      "Bash(timeout:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.wireshark.org)",
+      "WebSearch",
+      "Bash(7z l:*)",
+      "Bash(unzip:*)",
+      "Bash(javap:*)",
+      "Bash(gradlew.bat compileDebugKotlin:*)",
+      "Bash(.gradlew.bat compileDebugKotlin)",
+      "Bash(dir)",
+      "Bash(./gradlew:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

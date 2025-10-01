@@ -1,0 +1,3 @@
+[submodule "android/app/src/main/zdtun"]
+	path = android/app/src/main/zdtun
+	url = https://github.com/emanuele-f/zdtun.git

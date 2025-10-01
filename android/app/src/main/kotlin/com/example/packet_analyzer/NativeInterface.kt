@@ -12,14 +12,7 @@ class NativeInterface {
     companion object {
         private const val TAG = "NativeInterface"
 
-        init {
-            try {
-                System.loadLibrary("packet_analyzer")
-                Log.d(TAG, "Native library loaded successfully")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "Native library not found: ${e.message}")
-            }
-        }
+        // Native library loading removed - using tun2socks AAR instead
 
         private lateinit var methodChannel: MethodChannel
 
@@ -105,29 +98,22 @@ class NativeInterface {
             }
         }
 
-        // ---- Native JNI functions ----
-        @JvmStatic external fun nativeStartRootedCapture(): Boolean
-        @JvmStatic external fun nativeStopRootedCapture(): Boolean
-        @JvmStatic external fun nativeCleanup()
-        @JvmStatic external fun nativeClearPackets()
-        @JvmStatic external fun nativePauseCapture()
-        @JvmStatic external fun nativeResumeCapture()
-        @JvmStatic external fun nativeExportPackets(): ByteArray?
+        // ---- Native JNI functions (commented out - using tun2socks AAR instead) ----
+        // @JvmStatic external fun nativeStartRootedCapture(): Boolean
+        // @JvmStatic external fun nativeStopRootedCapture(): Boolean
+        // @JvmStatic external fun nativeCleanup()
+        // @JvmStatic external fun nativeClearPackets()
+        // @JvmStatic external fun nativePauseCapture()
+        // @JvmStatic external fun nativeResumeCapture()
+        // @JvmStatic external fun nativeExportPackets(): ByteArray?
 
         // ---- Export Packets to Downloads ----
         @JvmStatic
         fun exportPackets(context: Context): String? {
             return try {
-                val data = nativeExportPackets() ?: return null
-                val downloads =
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloads.exists()) downloads.mkdirs()
-
-                val file = File(downloads, "capture_${System.currentTimeMillis()}.pcap")
-                FileOutputStream(file).use { it.write(data) }
-
-                Log.d(TAG, "Exported PCAP to: ${file.absolutePath}")
-                file.absolutePath
+                // TODO: Implement export functionality using tun2socks data
+                Log.w(TAG, "Export function not yet implemented with tun2socks AAR")
+                null
             } catch (e: Exception) {
                 Log.e(TAG, "Export failed", e)
                 null

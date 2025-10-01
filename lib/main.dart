@@ -1,19 +1,112 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'auth/auth_service.dart';
+import 'auth/auth_wrapper.dart';
+import 'auth/login_screen.dart';
+import 'auth/setup_auth_screen.dart';
+
+// ================= CAPTURE MODE ENUM =================
+enum CaptureMode {
+  vpn,
+  libpcap,
+  enhanced;
+
+  String get displayName {
+    switch (this) {
+      case CaptureMode.vpn:
+        return 'VPN Service (COMPREHENSIVE ALL TRAFFIC)';
+      case CaptureMode.libpcap:
+        return 'LibPCAP (Root)';
+      case CaptureMode.enhanced:
+        return 'Enhanced VPN';
+    }
+  }
+
+  String get title {
+    switch (this) {
+      case CaptureMode.vpn:
+        return 'VPN';
+      case CaptureMode.libpcap:
+        return 'LibPCAP';
+      case CaptureMode.enhanced:
+        return 'Enhanced';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case CaptureMode.vpn:
+        return 'Comprehensive packet capture of ALL internet traffic with bidirectional analysis and smart direction detection';
+      case CaptureMode.libpcap:
+        return 'Uses libpcap/tcpdump for direct packet capture (requires root)';
+      case CaptureMode.enhanced:
+        return 'PCAPdroid-inspired VPN capture with advanced features and statistics';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case CaptureMode.vpn:
+        return Colors.blue;
+      case CaptureMode.libpcap:
+        return Colors.green;
+      case CaptureMode.enhanced:
+        return Colors.purple;
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case CaptureMode.vpn:
+        return Icons.vpn_lock;
+      case CaptureMode.libpcap:
+        return Icons.security;
+      case CaptureMode.enhanced:
+        return Icons.radar;
+    }
+  }
+}
 
 // ================= GLOBAL PACKET LISTENER =================
 const _channel = MethodChannel("packet_analyzer");
 
 void initPacketListener() {
+  print("🔧 Setting up packet listener..."); // Debug log
   _channel.setMethodCallHandler((call) async {
+    print("📞 Flutter received method call: ${call.method}"); // Debug log
     switch (call.method) {
       case "onPacketReceived":
+        print("📥 onPacketReceived called"); // Debug log
         PacketService._handleNativePacket(
           Map<String, dynamic>.from(call.arguments),
         );
+        break;
+      case "onPacketEvent":
+        print("📥 onPacketEvent called with args: ${call.arguments}"); // Debug log
+        final eventData = Map<String, dynamic>.from(call.arguments);
+        final event = eventData['event'] as String?;
+        final data = eventData['data'];
+
+        print("🎯 Processing event: $event"); // Debug log
+        switch (event) {
+          case "PACKET_CAPTURED":
+            print("📦 PACKET_CAPTURED event received!"); // Debug log
+            if (data is Map<String, dynamic>) {
+              PacketService._handleNativePacket(data);
+            }
+            break;
+          case "VPN_STARTED":
+          case "VPN_STOPPED":
+          case "LIBPCAP_STARTED":
+          case "LIBPCAP_STOPPED":
+          case "LIBPCAP_ERROR":
+            PacketService._statusController.add(data?.toString() ?? event ?? "Unknown Event");
+            break;
+        }
         break;
       case "onStatsUpdated":
         final stats = call.arguments;
@@ -52,43 +145,291 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   initPacketListener();
   PacketService.initialize();
-  runApp(const PacketAnalyzerApp());
-}
-
-// ================= CAPTURE MODE ENUM =================
-enum CaptureMode {
-  vpn(
-    "VPN Mode",
-    "Capture via Android VPNService",
-    Icons.vpn_lock,
-    Colors.blue,
-  ),
-  root(
-    "Root Mode",
-    "Raw sockets with root access",
-    Icons.security,
-    Colors.orange,
-  ),
-  pcap(
-    "PCAP Mode",
-    "Native libpcap capture (root required)",
-    Icons.network_check,
-    Colors.green,
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => AuthenticationService(),
+      child: const PacketAnalyzerApp(),
+    ),
   );
-
-  const CaptureMode(this.title, this.description, this.icon, this.color);
-
-  final String title;
-  final String description;
-  final IconData icon;
-  final Color color;
 }
+
+// ================= ENHANCED VPN CONTROLLER =================
+class VpnController {
+  static const _channel = MethodChannel("packet_analyzer");
+
+  static Future<bool> prepareVpn() async {
+    try {
+      final prepared = await _channel.invokeMethod("prepareVpn");
+      return prepared == true;
+    } catch (e) {
+      debugPrint("VPN prepare failed: $e");
+      return false;
+    }
+  }
+
+  static Future<void> startVpn() async {
+    try {
+      final prepared = await _channel.invokeMethod("prepareVpn");
+      if (prepared == true) {
+        try {
+          await _channel.invokeMethod("startVpn");
+          debugPrint("✅ VPN started successfully");
+          PacketService._statusController.add("VPN Started");
+        } catch (e) {
+          debugPrint("VPN start failed: $e");
+          PacketService._statusController.add("VPN Start Failed: $e");
+          throw Exception("VPN start failed: $e");
+        }
+      } else {
+        debugPrint("⚠️ VPN permission not granted yet");
+        PacketService._statusController.add("VPN Permission Required");
+        throw Exception("VPN permission not granted");
+      }
+    } catch (e) {
+      debugPrint("VPN operation failed: $e");
+      rethrow;
+    }
+  }
+
+  static Future<void> stopVpn() async {
+    try {
+      await _channel.invokeMethod("stopVpn");
+      debugPrint("🛑 VPN stopped");
+      PacketService._statusController.add("VPN Stopped");
+    } catch (e) {
+      debugPrint("VPN stop failed: $e");
+      PacketService._statusController.add("VPN Stop Failed: $e");
+      throw Exception("VPN stop failed: $e");
+    }
+  }
+
+  static Future<bool> isVpnRunning() async {
+    try {
+      final result = await _channel.invokeMethod("isVpnRunning");
+      return result == true;
+    } catch (e) {
+      debugPrint("VPN status check failed: $e");
+      return false;
+    }
+  }
+
+  static Future<String> getVpnStatus() async {
+    try {
+      final result = await _channel.invokeMethod("getVpnStatus");
+      return result?.toString() ?? "Unknown";
+    } catch (e) {
+      debugPrint("VPN status retrieval failed: $e");
+      return "Error: $e";
+    }
+  }
+
+  // NetHunter/Root-specific methods
+  static Future<bool> checkRootAccess() async {
+    try {
+      final result = await _channel.invokeMethod("checkRootAccess");
+      return result == true;
+    } catch (e) {
+      debugPrint("Root check failed: $e");
+      return false;
+    }
+  }
+
+  static Future<void> startLibpcapCapture() async {
+    try {
+      await _channel.invokeMethod("startLibpcapCapture");
+      debugPrint("✅ Libpcap capture started");
+      PacketService._statusController.add("Libpcap Started");
+    } catch (e) {
+      debugPrint("Libpcap start failed: $e");
+      PacketService._statusController.add("Libpcap Start Failed: $e");
+      throw Exception("Libpcap start failed: $e");
+    }
+  }
+
+  static Future<void> stopLibpcapCapture() async {
+    try {
+      await _channel.invokeMethod("stopLibpcapCapture");
+      debugPrint("🛑 Libpcap capture stopped");
+      PacketService._statusController.add("Libpcap Stopped");
+    } catch (e) {
+      debugPrint("Libpcap stop failed: $e");
+      PacketService._statusController.add("Libpcap Stop Failed: $e");
+      throw Exception("Libpcap stop failed: $e");
+    }
+  }
+
+  // ================= ENHANCED CAPTURE METHODS (PCAPdroid-inspired) =================
+
+  static Future<void> startEnhancedCapture() async {
+    try {
+      final prepared = await _channel.invokeMethod("prepareVpn");
+      if (prepared == true) {
+        try {
+          await _channel.invokeMethod("startCapture");
+          debugPrint("🚀 Enhanced capture started successfully");
+          PacketService._statusController.add("Enhanced Capture Started");
+        } catch (e) {
+          debugPrint("Enhanced capture start failed: $e");
+          PacketService._statusController.add("Enhanced Capture Start Failed: $e");
+          throw Exception("Enhanced capture start failed: $e");
+        }
+      } else {
+        debugPrint("⚠️ VPN permission not granted yet");
+        PacketService._statusController.add("VPN Permission Required");
+        throw Exception("VPN permission not granted");
+      }
+    } catch (e) {
+      debugPrint("Enhanced capture operation failed: $e");
+      rethrow;
+    }
+  }
+
+  static Future<void> stopEnhancedCapture() async {
+    try {
+      await _channel.invokeMethod("stopCapture");
+      debugPrint("🛑 Enhanced capture stopped");
+      PacketService._statusController.add("Enhanced Capture Stopped");
+    } catch (e) {
+      debugPrint("Enhanced capture stop failed: $e");
+      PacketService._statusController.add("Enhanced Capture Stop Failed: $e");
+      throw Exception("Enhanced capture stop failed: $e");
+    }
+  }
+}
+
+// ================= NATIVE BRIDGE CLASS =================
+class NativeBridge {
+  static const platform = MethodChannel("packet_analyzer");
+
+  // Root detection with enhanced error handling
+  static Future<bool> isRooted() async {
+    try {
+      final result = await platform.invokeMethod("isDeviceRooted");
+      return result == true;
+    } catch (e) {
+      debugPrint("Error checking root status: $e");
+      return false;
+    }
+  }
+
+  // Enhanced VPN control methods using VpnController
+  static Future<String> startVpn() async {
+    try {
+      await VpnController.startVpn();
+      return "VPN started successfully";
+    } catch (e) {
+      return "VPN start failed: $e";
+    }
+  }
+
+  static Future<String> stopVpn() async {
+    try {
+      await VpnController.stopVpn();
+      return "VPN stopped successfully";
+    } catch (e) {
+      return "VPN stop failed: $e";
+    }
+  }
+
+  // Additional bridge methods for comprehensive functionality
+  static Future<String> getDeviceInfo() async {
+    try {
+      final result = await platform.invokeMethod("getDeviceInfo");
+      return result?.toString() ?? "Device info unavailable";
+    } catch (e) {
+      debugPrint("Error getting device info: $e");
+      return "Error: ${e.toString()}";
+    }
+  }
+
+  static Future<List<String>> getNetworkInterfaces() async {
+    try {
+      final result = await platform.invokeMethod("getNetworkInterfaces");
+      return List<String>.from(result ?? []);
+    } catch (e) {
+      debugPrint("Error getting network interfaces: $e");
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> getSystemStats() async {
+    try {
+      final result = await platform.invokeMethod("getSystemStats");
+      return Map<String, dynamic>.from(result ?? {});
+    } catch (e) {
+      debugPrint("Error getting system stats: $e");
+      return {};
+    }
+  }
+
+  static Future<bool> requestPermissions() async {
+    try {
+      final result = await platform.invokeMethod("requestPermissions");
+      return result == true;
+    } catch (e) {
+      debugPrint("Error requesting permissions: $e");
+      return false;
+    }
+  }
+
+  static Future<String> exportData(Map<String, dynamic> data) async {
+    try {
+      final result = await platform.invokeMethod("exportData", data);
+      return result?.toString() ?? "Export failed";
+    } catch (e) {
+      debugPrint("Error exporting data: $e");
+      return "Error: ${e.toString()}";
+    }
+  }
+
+  // Enhanced packet capture controls
+  static Future<bool> startRootCapture() async {
+    try {
+      final result = await platform.invokeMethod("startRootedCapture");
+      return result == true;
+    } catch (e) {
+      debugPrint("Error starting root capture: $e");
+      return false;
+    }
+  }
+
+  static Future<bool> stopRootCapture() async {
+    try {
+      final result = await platform.invokeMethod("stopRootedCapture");
+      return result == true;
+    } catch (e) {
+      debugPrint("Error stopping root capture: $e");
+      return false;
+    }
+  }
+
+  static Future<bool> startPcapCapture() async {
+    try {
+      final result = await platform.invokeMethod("startPcapCapture");
+      return result == true;
+    } catch (e) {
+      debugPrint("Error starting PCAP capture: $e");
+      return false;
+    }
+  }
+
+  static Future<bool> stopPcapCapture() async {
+    try {
+      final result = await platform.invokeMethod("stopPcapCapture");
+      return result == true;
+    } catch (e) {
+      debugPrint("Error stopping PCAP capture: $e");
+      return false;
+    }
+  }
+}
+
 
 // ================= ENHANCED MODELS =================
 class PacketInfo {
   final String sourceIp, destinationIp, protocol, timestamp, payload;
   final int sourcePort, destinationPort, size;
-  final String? direction, flags;
+  final String? direction, flags, appName;
 
   const PacketInfo({
     required this.sourceIp,
@@ -101,6 +442,7 @@ class PacketInfo {
     required this.payload,
     this.direction,
     this.flags,
+    this.appName,
   });
 
   factory PacketInfo.fromMap(Map<String, dynamic> map) => PacketInfo(
@@ -116,6 +458,7 @@ class PacketInfo {
     payload: map['payload']?.toString() ?? '',
     direction: map['direction']?.toString(),
     flags: map['flags']?.toString(),
+    appName: map['appName']?.toString(),
   );
 
   String get formattedTime {
@@ -175,9 +518,10 @@ class NetworkMetrics {
   }
 }
 
-// ================= ENHANCED PACKET SERVICE =================
+// ================= ENHANCED PACKET SERVICE WITH VPN CONTROLLER =================
 class PacketService {
   static const MethodChannel _channel = MethodChannel('packet_analyzer');
+  static const EventChannel _packetEventChannel = EventChannel('packet_stream');
 
   static final _packetController = StreamController<PacketInfo>.broadcast();
   static final _statusController = StreamController<String>.broadcast();
@@ -194,6 +538,7 @@ class PacketService {
   static final _buffer = <Map<String, dynamic>>[];
   static Timer? _flushTimer;
   static Timer? _statsTimer;
+  static StreamSubscription? _eventChannelSubscription;
 
   static Future<void> initialize() async {
     _flushTimer ??= Timer.periodic(
@@ -201,15 +546,54 @@ class PacketService {
       (_) => _flush(),
     );
 
-    _statsTimer ??= Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => _generateMockStats(),
-    );
+    // Mock stats disabled - using only real packet statistics
+    // _statsTimer ??= Timer.periodic(
+    //   const Duration(seconds: 3),
+    //   (_) => _generateMockStats(),
+    // );
+
+    // Listen to EventChannel for real-time packet streaming from Go layer
+    _eventChannelSubscription ??= _packetEventChannel
+        .receiveBroadcastStream()
+        .listen((dynamic event) {
+      try {
+        print("📡 Received packet from EventChannel: $event");
+
+        Map<String, dynamic> packetData;
+
+        // Handle different event types from native code
+        if (event is String) {
+          packetData = jsonDecode(event) as Map<String, dynamic>;
+          print("📦 Parsed JSON packet: $packetData");
+        } else if (event is Map<String, dynamic>) {
+          packetData = event;
+        } else if (event is Map) {
+          // Handle Map<Object?, Object?> from native Android
+          packetData = Map<String, dynamic>.from(event);
+          print("📦 Converted native map packet: $packetData");
+        } else {
+          print("⚠️ Unknown event type: ${event.runtimeType}");
+          print("⚠️ Raw event data: $event");
+          return;
+        }
+
+        final packet = PacketInfo.fromMap(packetData);
+        print("✅ EventChannel PacketInfo: ${packet.protocol} ${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}");
+        _packetController.add(packet);
+
+      } catch (e) {
+        print("❌ Error processing EventChannel packet: $e");
+        print("❌ Raw event: $event");
+      }
+    }, onError: (error) {
+      print("❌ EventChannel error: $error");
+    });
   }
 
   static void disposeService() {
     _flushTimer?.cancel();
-    _statsTimer?.cancel();
+    // _statsTimer?.cancel(); // No longer needed - mock stats disabled
+    _eventChannelSubscription?.cancel();
     _packetController.close();
     _statusController.close();
     _metricsController.close();
@@ -218,6 +602,7 @@ class PacketService {
 
   // Native handlers
   static void _handleNativePacket(Map<String, dynamic> map) {
+    print("🔥 Flutter received packet: $map"); // Debug log
     _buffer.add(map);
   }
 
@@ -261,69 +646,205 @@ class PacketService {
   static void _flush() {
     if (_buffer.isEmpty) return;
     final batch = List<Map<String, dynamic>>.from(_buffer);
+    print("🚀 Flutter flushing ${batch.length} packets to UI"); // Debug log
     _buffer.clear();
     for (final m in batch) {
-      _packetController.add(PacketInfo.fromMap(m));
+      try {
+        final packet = PacketInfo.fromMap(m);
+        print("✅ Created PacketInfo: ${packet.protocol} ${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}"); // Debug log
+        _packetController.add(packet);
+      } catch (e) {
+        print("❌ Error creating PacketInfo from map: $e"); // Debug log
+        print("❌ Problematic map: $m"); // Debug log
+      }
     }
   }
 
-  // Mock stats for demo purposes
-  static void _generateMockStats() {
-    final protocols = ['TCP', 'UDP', 'HTTP', 'HTTPS', 'DNS', 'ICMP'];
-    final stats = protocols
-        .map(
-          (p) => ProtocolStats(
-            protocol: p,
-            packetCount: math.Random().nextInt(150) + 10,
-            percentage: math.Random().nextDouble() * 25 + 5,
-          ),
-        )
-        .toList();
-    _statsController.add(stats);
+  // Mock stats function removed - using only real packet statistics
+
+  // ================= ENHANCED CONTROL METHODS WITH VPN CONTROLLER =================
+
+  // VPN Service Control via VpnController
+  static Future<bool> startVpnService() async {
+    try {
+      await VpnController.startVpn();
+      return true;
+    } catch (e) {
+      _statusController.add("VPN Error: ${e.toString()}");
+      return false;
+    }
   }
 
-  // Control methods (merged from both sources)
-  static Future<bool> startVpnService() async =>
-      (await _channel.invokeMethod('startVpnService')) == true;
+  static Future<bool> stopVpnService() async {
+    try {
+      await VpnController.stopVpn();
+      return true;
+    } catch (e) {
+      _statusController.add("VPN Stop Error: ${e.toString()}");
+      return false;
+    }
+  }
 
-  static Future<bool> stopVpnService() async =>
-      (await _channel.invokeMethod('stopVpnService')) == true;
+  static Future<bool> checkVpnPermission() async {
+    try {
+      return await VpnController.prepareVpn();
+    } catch (e) {
+      debugPrint("Error checking VPN permission: $e");
+      return false;
+    }
+  }
 
-  static Future<bool> startRootCapture() async =>
-      (await _channel.invokeMethod('startRootedCapture')) == true;
+  static Future<bool> isVpnActive() async {
+    try {
+      return await VpnController.isVpnRunning();
+    } catch (e) {
+      debugPrint("Error checking VPN status: $e");
+      return false;
+    }
+  }
 
-  static Future<bool> stopRootCapture() async =>
-      (await _channel.invokeMethod('stopRootedCapture')) == true;
+  // Root Detection via NativeBridge
+  static Future<bool> isDeviceRooted() async {
+    try {
+      return await NativeBridge.isRooted();
+    } catch (e) {
+      debugPrint("Error checking root: $e");
+      return false;
+    }
+  }
 
-  static Future<bool> startPcapCapture() async =>
-      (await _channel.invokeMethod('startPcapCapture')) == true;
+  // Enhanced Capture Methods via NativeBridge
+  static Future<bool> startRootCapture() async {
+    try {
+      final success = await NativeBridge.startRootCapture();
+      if (success) {
+        _statusController.add("Root Capture Started");
+      } else {
+        _statusController.add("Root Capture Failed");
+      }
+      return success;
+    } catch (e) {
+      _statusController.add("Root Capture Error: ${e.toString()}");
+      return false;
+    }
+  }
 
-  static Future<bool> stopPcapCapture() async =>
-      (await _channel.invokeMethod('stopPcapCapture')) == true;
+  static Future<bool> stopRootCapture() async {
+    try {
+      final success = await NativeBridge.stopRootCapture();
+      if (success) {
+        _statusController.add("Root Capture Stopped");
+      } else {
+        _statusController.add("Root Capture Stop Failed");
+      }
+      return success;
+    } catch (e) {
+      _statusController.add("Root Capture Stop Error: ${e.toString()}");
+      return false;
+    }
+  }
 
-  static Future<bool> isDeviceRooted() async =>
-      (await _channel.invokeMethod('isDeviceRooted')) == true;
+  static Future<bool> startPcapCapture() async {
+    try {
+      final success = await NativeBridge.startPcapCapture();
+      if (success) {
+        _statusController.add("PCAP Capture Started");
+      } else {
+        _statusController.add("PCAP Capture Failed");
+      }
+      return success;
+    } catch (e) {
+      _statusController.add("PCAP Capture Error: ${e.toString()}");
+      return false;
+    }
+  }
 
-  static Future<String?> exportPackets() async =>
-      await _channel.invokeMethod('exportPackets');
+  static Future<bool> stopPcapCapture() async {
+    try {
+      final success = await NativeBridge.stopPcapCapture();
+      if (success) {
+        _statusController.add("PCAP Capture Stopped");
+      } else {
+        _statusController.add("PCAP Capture Stop Failed");
+      }
+      return success;
+    } catch (e) {
+      _statusController.add("PCAP Capture Stop Error: ${e.toString()}");
+      return false;
+    }
+  }
+
+  // Enhanced Export via NativeBridge
+  static Future<String?> exportPackets() async {
+    try {
+      final packetData = {
+        'packets': _buffer,
+        'count': _buffer.length,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      final result = await NativeBridge.exportData(packetData);
+      return result.contains("Error") ? null : result;
+    } catch (e) {
+      debugPrint("Error exporting packets: $e");
+      return null;
+    }
+  }
+
+  // System Information via NativeBridge
+  static Future<String> getDeviceInfo() async {
+    try {
+      return await NativeBridge.getDeviceInfo();
+    } catch (e) {
+      return "Device info unavailable: ${e.toString()}";
+    }
+  }
+
+  static Future<List<String>> getNetworkInterfaces() async {
+    try {
+      return await NativeBridge.getNetworkInterfaces();
+    } catch (e) {
+      debugPrint("Error getting network interfaces: $e");
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> getSystemStats() async {
+    try {
+      return await NativeBridge.getSystemStats();
+    } catch (e) {
+      debugPrint("Error getting system stats: $e");
+      return {};
+    }
+  }
+
+  // Permission Management via NativeBridge
+  static Future<bool> requestAllPermissions() async {
+    try {
+      return await NativeBridge.requestPermissions();
+    } catch (e) {
+      debugPrint("Error requesting permissions: $e");
+      return false;
+    }
+  }
 
   static Future<void> clearPackets() async {
     try {
       await _channel.invokeMethod('clearPackets');
+      _buffer.clear();
     } catch (_) {
       debugPrint("clearPackets not implemented natively");
     }
   }
 }
 
-// ================= OPTIMIZED UI APP =================
+// ================= ENHANCED UI APP =================
 class PacketAnalyzerApp extends StatelessWidget {
-  const PacketAnalyzerApp({super.key});
+  const PacketAnalyzerApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Andronet',
+      title: 'Andronet by CipherSec',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -347,14 +868,27 @@ class PacketAnalyzerApp extends StatelessWidget {
           elevation: 0,
           scrolledUnderElevation: 1,
         ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          ),
+        ),
       ),
-      home: const PacketAnalyzerScreen(),
+      home: const AuthWrapper(),
+      routes: {
+        '/setup-auth': (context) => const SetupAuthScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/main': (context) => const PacketAnalyzerScreen(),
+      },
     );
   }
 }
 
 class PacketAnalyzerScreen extends StatefulWidget {
-  const PacketAnalyzerScreen({super.key});
+  const PacketAnalyzerScreen({Key? key}) : super(key: key);
 
   @override
   State<PacketAnalyzerScreen> createState() => _PacketAnalyzerScreenState();
@@ -365,6 +899,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   // Core state
   bool _isCapturing = false;
   bool _isRooted = false;
+  bool _vpnPermissionGranted = false;
   CaptureMode _selectedCaptureMode = CaptureMode.vpn;
 
   final List<PacketInfo> _packets = [];
@@ -374,6 +909,11 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   String _selectedProtocolFilter = "ALL";
   bool _autoScroll = true;
   int _selectedTabIndex = 0;
+
+  // Device and system information
+  String _deviceInfo = 'Unknown';
+  List<String> _networkInterfaces = [];
+  Map<String, dynamic> _systemStats = {};
 
   // Subscriptions
   StreamSubscription<PacketInfo>? _packetSub;
@@ -388,18 +928,18 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   // Performance optimization
   Timer? _debounceTimer;
-  static const int _maxPackets = 1500; // Optimized buffer size
+  static const int _maxPackets = 1500;
 
   @override
   void initState() {
     super.initState();
     _initializeControllers();
     _setupStreamSubscriptions();
-    _checkRoot();
+    _initializeNativeBridge();
   }
 
   void _initializeControllers() {
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() => _selectedTabIndex = _tabController.index);
     });
@@ -446,83 +986,207 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     });
   }
 
-  Future<void> _checkRoot() async {
+  // ================= ENHANCED NATIVE BRIDGE INITIALIZATION =================
+  Future<void> _initializeNativeBridge() async {
     try {
-      _isRooted = await PacketService.isDeviceRooted();
+      // Check root status for NetHunter functionality
+      _isRooted = await VpnController.checkRootAccess();
+
+      // Check VPN permission status
+      _vpnPermissionGranted = await VpnController.prepareVpn();
+
+      // Set default capture mode based on capabilities
+      if (_isRooted && !_vpnPermissionGranted) {
+        _selectedCaptureMode = CaptureMode.libpcap;
+      } else {
+        _selectedCaptureMode = CaptureMode.vpn;
+      }
+
+      // Get device information (if available)
+      try {
+        _deviceInfo = await PacketService.getDeviceInfo();
+        _networkInterfaces = await PacketService.getNetworkInterfaces();
+        _systemStats = await PacketService.getSystemStats();
+      } catch (e) {
+        debugPrint("Device info unavailable: $e");
+        _deviceInfo = 'Device info unavailable';
+      }
+
       if (mounted) {
-        setState(() {
-          if (_isRooted) _selectedCaptureMode = CaptureMode.root;
-        });
+        setState(() {});
+        _showSnackBar(
+          "✅ Andronet initialized - Root: ${_isRooted ? 'Available' : 'Not Available'}, VPN: ${_vpnPermissionGranted ? 'Ready' : 'Permission Required'}",
+          Colors.green,
+          Icons.check_circle,
+        );
       }
     } catch (e) {
-      debugPrint('Error checking root: $e');
+      _showSnackBar(
+        "❌ Initialization failed: ${e.toString()}",
+        Colors.red,
+        Icons.error,
+      );
+    }
+  }
+
+  // ================= ENHANCED CAPTURE CONTROL WITH VPN + LIBPCAP =================
+  Future<void> _startCapture() async {
+    try {
+      setState(() => _isCapturing = true);
+
+      switch (_selectedCaptureMode) {
+        case CaptureMode.vpn:
+          // Check VPN permission first
+          if (!_vpnPermissionGranted) {
+            final permitted = await VpnController.prepareVpn();
+            if (!permitted) {
+              _showVpnPermissionDialog();
+              setState(() => _isCapturing = false);
+              return;
+            }
+            _vpnPermissionGranted = true;
+          }
+          await VpnController.startVpn();
+          break;
+        case CaptureMode.libpcap:
+          if (!_isRooted) {
+            _showSnackBar(
+              "Root access required for LibPCAP mode",
+              Colors.red,
+              Icons.error_outline,
+            );
+            setState(() => _isCapturing = false);
+            return;
+          }
+          await VpnController.startLibpcapCapture();
+          break;
+        case CaptureMode.enhanced:
+          // Check VPN permission first
+          if (!_vpnPermissionGranted) {
+            final permitted = await VpnController.prepareVpn();
+            if (!permitted) {
+              _showVpnPermissionDialog();
+              setState(() => _isCapturing = false);
+              return;
+            }
+            _vpnPermissionGranted = true;
+          }
+          await VpnController.startEnhancedCapture();
+          break;
+      }
+
+      _showSnackBar(
+        "✅ ${_selectedCaptureMode == CaptureMode.vpn ? 'VPN' : 'LibPCAP'} capture started",
+        Colors.green,
+        Icons.play_circle_filled,
+      );
+    } catch (e) {
+      setState(() => _isCapturing = false);
+      _showSnackBar("Error starting capture: ${e.toString()}", Colors.red, Icons.error);
+    }
+  }
+
+  Future<void> _stopCapture() async {
+    try {
+      switch (_selectedCaptureMode) {
+        case CaptureMode.vpn:
+          await VpnController.stopVpn();
+          break;
+        case CaptureMode.libpcap:
+          await VpnController.stopLibpcapCapture();
+          break;
+        case CaptureMode.enhanced:
+          await VpnController.stopEnhancedCapture();
+          break;
+      }
+
+      setState(() => _isCapturing = false);
+      _showSnackBar(
+        "⏹️ Capture stopped",
+        Colors.orange,
+        Icons.stop_circle,
+      );
+    } catch (e) {
+      _showSnackBar("Error stopping capture: ${e.toString()}", Colors.red, Icons.error);
     }
   }
 
   Future<void> _toggleCapture() async {
-    bool success = false;
+    if (_isCapturing) {
+      await _stopCapture();
+    } else {
+      await _startCapture();
+    }
+  }
 
+  void _showVpnPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.vpn_lock, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('VPN Permission Required'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('This app needs VPN permission to capture network packets.'),
+            SizedBox(height: 12),
+            Text(
+              'When you tap "Grant Permission", Android will show a VPN permission dialog.',
+            ),
+            SizedBox(height: 8),
+            Text('Please tap "OK" to allow packet capture.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _requestVpnPermission();
+            },
+            icon: const Icon(Icons.security),
+            label: const Text('Grant Permission'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _requestVpnPermission() async {
     try {
-      if (_isCapturing) {
-        switch (_selectedCaptureMode) {
-          case CaptureMode.vpn:
-            success = await PacketService.stopVpnService();
-            break;
-          case CaptureMode.root:
-            success = await PacketService.stopRootCapture();
-            break;
-          case CaptureMode.pcap:
-            success = await PacketService.stopPcapCapture();
-            break;
-        }
-      } else {
-        switch (_selectedCaptureMode) {
-          case CaptureMode.vpn:
-            success = await PacketService.startVpnService();
-            break;
-          case CaptureMode.root:
-            if (!_isRooted) {
-              _showSnackBar(
-                "Root access required for this mode",
-                Colors.red,
-                Icons.error_outline,
-              );
-              return;
-            }
-            success = await PacketService.startRootCapture();
-            break;
-          case CaptureMode.pcap:
-            if (!_isRooted) {
-              _showSnackBar(
-                "Root access required for PCAP mode",
-                Colors.red,
-                Icons.error_outline,
-              );
-              return;
-            }
-            success = await PacketService.startPcapCapture();
-            break;
-        }
-      }
+      final permitted = await PacketService.checkVpnPermission();
+      setState(() => _vpnPermissionGranted = permitted);
 
-      if (success && mounted) {
-        setState(() => _isCapturing = !_isCapturing);
+      if (permitted) {
         _showSnackBar(
-          _isCapturing
-              ? "✅ ${_selectedCaptureMode.title} started successfully"
-              : "⏹️ Capture stopped",
-          _isCapturing ? Colors.green : Colors.orange,
-          _isCapturing ? Icons.play_circle_filled : Icons.stop_circle,
+          "✅ VPN permission granted",
+          Colors.green,
+          Icons.check_circle,
         );
+        // Automatically start VPN after permission is granted
+        _toggleCapture();
       } else {
-        _showSnackBar(
-          "❌ Failed to ${_isCapturing ? 'stop' : 'start'} capture",
-          Colors.red,
-          Icons.error,
-        );
+        _showSnackBar("❌ VPN permission denied", Colors.red, Icons.error);
       }
     } catch (e) {
-      _showSnackBar("Error: ${e.toString()}", Colors.red, Icons.error);
+      _showSnackBar(
+        "Permission request failed: ${e.toString()}",
+        Colors.red,
+        Icons.error,
+      );
     }
   }
 
@@ -645,34 +1309,49 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             ),
           ),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Andronet\n   by CipherSec',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onSurface,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Andronet',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
-              ),
-              Text(
-                _currentStatus,
-                style: TextStyle(
-                  fontSize: 6,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withOpacity(0.7),
+                Text(
+                  _currentStatus,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.7),
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
       backgroundColor: Theme.of(context).colorScheme.surface,
       actions: [
         _buildLiveStatusIndicator(),
+        Consumer<AuthenticationService>(
+          builder: (context, auth, child) {
+            if (auth.currentAuthMethod != AuthMethod.none) {
+              return IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: () => auth.logout(),
+                tooltip: 'Logout',
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
         IconButton(
           icon: const Icon(Icons.file_download),
           onPressed: _exportPackets,
@@ -686,7 +1365,23 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               value: 'mode',
               child: Text('Change Capture Mode'),
             ),
+            const PopupMenuItem(
+              value: 'vpn_permission',
+              child: Text('Check VPN Permission'),
+            ),
             const PopupMenuItem(value: 'clear', child: Text('Clear All Data')),
+            const PopupMenuItem(
+              value: 'refresh',
+              child: Text('Refresh System Info'),
+            ),
+            const PopupMenuItem(
+              value: 'permissions',
+              child: Text('Request Permissions'),
+            ),
+            const PopupMenuItem(
+              value: 'security',
+              child: Text('Security Settings'),
+            ),
             const PopupMenuItem(value: 'settings', child: Text('Settings')),
             const PopupMenuItem(value: 'about', child: Text('About')),
           ],
@@ -763,7 +1458,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Capture Mode Indicator
+            // Enhanced Capture Mode Indicator with VPN Permission Status
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
@@ -788,6 +1483,29 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: _selectedCaptureMode.color,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // VPN Permission indicator
+                  if (_selectedCaptureMode == CaptureMode.vpn)
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _vpnPermissionGranted
+                            ? Colors.green
+                            : Colors.orange,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  // Native Bridge indicator
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -900,12 +1618,13 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
           context,
         ).colorScheme.onSurface.withOpacity(0.6),
         dividerColor: Colors.transparent,
-        labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: const TextStyle(fontSize: 13),
+        labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: const TextStyle(fontSize: 12),
         tabs: const [
-          Tab(text: 'Live Stream', icon: Icon(Icons.stream, size: 16)),
-          Tab(text: 'Analytics', icon: Icon(Icons.analytics, size: 16)),
-          Tab(text: 'Statistics', icon: Icon(Icons.bar_chart, size: 16)),
+          Tab(text: 'Stream', icon: Icon(Icons.stream, size: 14)),
+          Tab(text: 'Analytics', icon: Icon(Icons.analytics, size: 14)),
+          Tab(text: 'Statistics', icon: Icon(Icons.bar_chart, size: 14)),
+          Tab(text: 'System', icon: Icon(Icons.settings, size: 14)),
         ],
       ),
     );
@@ -918,9 +1637,386 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         _buildLiveStreamTab(),
         _buildAnalyticsTab(),
         _buildStatisticsTab(),
+        _buildEnhancedSystemInfoTab(), // Enhanced with VPN permission info
       ],
     );
   }
+
+  // ================= ENHANCED SYSTEM INFO TAB WITH VPN CONTROLLER =================
+  Widget _buildEnhancedSystemInfoTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildVpnControllerCard(), // New VPN Controller card
+          const SizedBox(height: 16),
+          _buildDeviceInfoCard(),
+          const SizedBox(height: 16),
+          _buildNetworkInterfacesCard(),
+          const SizedBox(height: 16),
+          _buildSystemStatsCard(),
+          const SizedBox(height: 16),
+          _buildNativeBridgeStatusCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVpnControllerCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.vpn_lock,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'VPN Controller',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildInfoRow(
+              'Permission Status',
+              _vpnPermissionGranted ? 'Granted' : 'Required',
+              _vpnPermissionGranted ? Colors.green : Colors.orange,
+            ),
+            _buildInfoRow(
+              'VPN Status',
+              _isCapturing && _selectedCaptureMode == CaptureMode.vpn
+                  ? 'Active'
+                  : 'Inactive',
+              null,
+            ),
+            _buildInfoRow(
+              'Root Status',
+              _isRooted ? 'Available' : 'Not Available',
+              _isRooted ? Colors.green : Colors.grey,
+            ),
+            _buildInfoRow(
+              'Controller Type',
+              'Enhanced VpnController + NetHunter',
+              Colors.blue,
+            ),
+            const SizedBox(height: 16),
+            // Capture Mode Selection
+            Row(
+              children: [
+                Expanded(
+                  child: SegmentedButton<CaptureMode>(
+                    segments: [
+                      ButtonSegment(
+                        value: CaptureMode.vpn,
+                        label: Text('VPN'),
+                        icon: Icon(Icons.vpn_lock),
+                      ),
+                      if (_isRooted)
+                        ButtonSegment(
+                          value: CaptureMode.libpcap,
+                          label: Text('LibPCAP'),
+                          icon: Icon(Icons.security),
+                        ),
+                    ],
+                    selected: {_selectedCaptureMode},
+                    onSelectionChanged: (Set<CaptureMode> newSelection) {
+                      setState(() {
+                        _selectedCaptureMode = newSelection.first;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Capture Control Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _startCapture,
+                    icon: const Icon(Icons.play_arrow),
+                    label: Text(_selectedCaptureMode == CaptureMode.vpn ? "Start VPN" : "Start LibPCAP"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _stopCapture,
+                    icon: const Icon(Icons.stop),
+                    label: Text(_selectedCaptureMode == CaptureMode.vpn ? "Stop VPN" : "Stop LibPCAP"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (!_vpnPermissionGranted)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _requestVpnPermission,
+                  icon: const Icon(Icons.security),
+                  label: const Text("Request VPN Permission"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeviceInfoCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.phone_android,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Device Information',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildInfoRow(
+              'Root Status',
+              _isRooted ? 'Available' : 'Not Available',
+              _isRooted ? Colors.green : Colors.red,
+            ),
+            _buildInfoRow('Device Info', _deviceInfo, null),
+            _buildInfoRow(
+              'Selected Mode',
+              _selectedCaptureMode.title,
+              _selectedCaptureMode.color,
+            ),
+            _buildInfoRow('Native Bridge', 'Connected', Colors.green),
+            _buildInfoRow(
+              'VPN Permission',
+              _vpnPermissionGranted ? 'Granted' : 'Required',
+              _vpnPermissionGranted ? Colors.green : Colors.orange,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetworkInterfacesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.network_wifi,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Network Interfaces',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_networkInterfaces.isEmpty)
+              const Text('No network interfaces detected')
+            else
+              ..._networkInterfaces.map(
+                (interface) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(Icons.network_cell, size: 16, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text(interface),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSystemStatsCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.memory,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'System Statistics',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_systemStats.isEmpty)
+              const Text('System stats unavailable')
+            else
+              ..._systemStats.entries.map(
+                (entry) =>
+                    _buildInfoRow(entry.key, entry.value.toString(), null),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNativeBridgeStatusCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.link,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Native Bridge Status',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildInfoRow('Connection', 'Active', Colors.green),
+            _buildInfoRow('VPN Controller', 'Integrated', Colors.blue),
+            _buildInfoRow('Root Detection', 'Available', Colors.orange),
+            _buildInfoRow('Data Export', 'Available', Colors.purple),
+            _buildInfoRow('Permission Handling', 'Enhanced', Colors.teal),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _initializeNativeBridge(),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => PacketService.requestAllPermissions(),
+                    icon: const Icon(Icons.security),
+                    label: const Text('Permissions'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, Color? valueColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 3,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: valueColor ?? Theme.of(context).colorScheme.primary,
+              ),
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // [REST OF THE UI METHODS - Include all from previous version with minor modifications]
 
   Widget _buildLiveStreamTab() {
     return Column(
@@ -1021,7 +2117,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      packet.protocol,
+                      packet.appName ?? packet.protocol,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -1386,6 +2482,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               'Device Status',
               _isRooted ? 'Rooted' : 'Standard',
             ),
+            _buildSummaryRow(
+              'VPN Permission',
+              _vpnPermissionGranted ? 'Granted' : 'Required',
+            ),
             if (_metrics != null) ...[
               _buildSummaryRow(
                 'Packet Rate',
@@ -1440,7 +2540,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               'Capture Status',
               _isCapturing ? 'Active' : 'Stopped',
             ),
-            _buildSummaryRow('Performance Mode', 'Optimized'),
+            _buildSummaryRow('Performance Mode', 'VpnController Enhanced'),
           ],
         ),
       ),
@@ -1578,7 +2678,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                             ),
                           ),
                           Text(
-                            '${packet.protocol} • ${packet.displayDirection} • ${packet.formattedTime}',
+                            '${packet.appName ?? packet.protocol} • ${packet.displayDirection} • ${packet.formattedTime}',
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 12,
@@ -1609,13 +2709,16 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                           'Destination',
                           '${packet.destinationIp}:${packet.destinationPort}',
                         ),
-                        _buildDetailRow('Protocol', packet.protocol),
+                        _buildDetailRow('Protocol', packet.appName ?? packet.protocol),
+                        if (packet.appName != null && packet.appName != packet.protocol)
+                          _buildDetailRow('Transport', packet.protocol),
                         _buildDetailRow('Direction', packet.displayDirection),
                       ]),
                       const SizedBox(height: 16),
                       _buildDetailSection('Packet Information', [
                         _buildDetailRow('Size', '${packet.size} bytes'),
                         _buildDetailRow('Timestamp', packet.formattedTime),
+                        _buildDetailRow('Captured via', 'VpnController'),
                         if (packet.flags != null)
                           _buildDetailRow('Flags', packet.flags!),
                       ]),
@@ -1717,27 +2820,58 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       ),
       builder: (context) => Container(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Row(
               children: [
                 Icon(Icons.tune, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 8),
-                Text(
-                  'Select Capture Mode',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+                Expanded(
+                  child: Text(
+                    'Select Capture Mode',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        'VpnController',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 20),
             ...CaptureMode.values.map((mode) => _buildModeOption(mode)),
-            const SizedBox(height: 8),
+            const SizedBox(width: 8),
             if (!_isRooted)
               Container(
                 padding: const EdgeInsets.all(12),
@@ -1759,15 +2893,40 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   ],
                 ),
               ),
+            if (!_vpnPermissionGranted &&
+                _selectedCaptureMode == CaptureMode.vpn)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.vpn_lock, color: Colors.blue, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'VPN permission required for packet capture',
+                        style: TextStyle(fontSize: 12, color: Colors.blue),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
+    ),
     );
   }
 
   Widget _buildModeOption(CaptureMode mode) {
     final isSelected = _selectedCaptureMode == mode;
     final isEnabled = mode == CaptureMode.vpn || _isRooted;
+    final needsPermission = mode == CaptureMode.vpn && !_vpnPermissionGranted;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1779,7 +2938,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   setState(() => _selectedCaptureMode = mode);
                   Navigator.pop(context);
                   _showSnackBar(
-                    "${mode.title} selected",
+                    "${mode.title} selected${needsPermission ? ' (Permission Required)' : ''}",
                     mode.color,
                     mode.icon,
                   );
@@ -1819,13 +2978,38 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        mode.title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                          color: isEnabled ? null : Colors.grey,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            mode.title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              color: isEnabled ? null : Colors.grey,
+                            ),
+                          ),
+                          if (needsPermission) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text(
+                                'PERM',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -1859,8 +3043,26 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       case 'mode':
         _showCaptureModeSelector();
         break;
+      case 'vpn_permission':
+        _requestVpnPermission();
+        break;
       case 'clear':
         _clearAllData();
+        break;
+      case 'refresh':
+        _initializeNativeBridge();
+        break;
+      case 'permissions':
+        PacketService.requestAllPermissions().then((success) {
+          _showSnackBar(
+            success ? '✅ Permissions granted' : '❌ Permission request failed',
+            success ? Colors.green : Colors.red,
+            success ? Icons.check_circle : Icons.error,
+          );
+        });
+        break;
+      case 'security':
+        _showSecuritySettingsDialog();
         break;
       case 'settings':
         _showSettingsDialog();
@@ -1869,6 +3071,253 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         _showAboutDialog();
         break;
     }
+  }
+
+  void _showSecuritySettingsDialog() {
+    final authService = Provider.of<AuthenticationService>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (context) => Consumer<AuthenticationService>(
+        builder: (context, auth, child) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.security, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Security Settings'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Current Authentication Status
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Current Security',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildSecurityInfoRow('Method', auth.currentAuthMethod.name.toUpperCase()),
+                      _buildSecurityInfoRow('Biometric', auth.biometricEnabled ? 'Enabled' : 'Disabled'),
+                      _buildSecurityInfoRow('Auto-lock', '${auth.autoLockTime} minutes'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Security Actions
+                if (auth.currentAuthMethod != AuthMethod.none) ...[
+                  _buildSecurityActionTile(
+                    'Change Security Method',
+                    'Modify PIN, password, or pattern',
+                    Icons.edit_outlined,
+                    () => Navigator.of(context).pushNamed('/setup-auth'),
+                  ),
+                  _buildSecurityActionTile(
+                    'Auto-lock Settings',
+                    'Configure automatic lock time',
+                    Icons.timer_outlined,
+                    () => _showAutoLockDialog(auth),
+                  ),
+                  if (auth.biometricEnabled)
+                    _buildSecurityActionTile(
+                      'Disable Biometric',
+                      'Turn off fingerprint/face unlock',
+                      Icons.fingerprint_outlined,
+                      () async {
+                        auth.disableAuthentication();
+                        Navigator.of(context).pop();
+                        _showSnackBar('Biometric authentication disabled', Colors.orange, Icons.info);
+                      },
+                    )
+                  else
+                    FutureBuilder<bool>(
+                      future: auth.isBiometricAvailable(),
+                      builder: (context, snapshot) {
+                        if (snapshot.data == true) {
+                          return _buildSecurityActionTile(
+                            'Enable Biometric',
+                            'Use fingerprint or face unlock',
+                            Icons.fingerprint,
+                            () async {
+                              final success = await auth.enableBiometric();
+                              if (success) {
+                                _showSnackBar('Biometric authentication enabled', Colors.green, Icons.check_circle);
+                              } else {
+                                _showSnackBar('Failed to enable biometric', Colors.red, Icons.error);
+                              }
+                            },
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  _buildSecurityActionTile(
+                    'Remove Security',
+                    'Disable all security features',
+                    Icons.no_encryption_outlined,
+                    () => _showRemoveSecurityDialog(auth),
+                  ),
+                ] else ...[
+                  _buildSecurityActionTile(
+                    'Setup Security',
+                    'Add PIN, password, or pattern',
+                    Icons.add_moderator_outlined,
+                    () => Navigator.of(context).pushNamed('/setup-auth'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecurityInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 14)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSecurityActionTile(String title, String subtitle, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 24, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: Colors.grey.shade400),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAutoLockDialog(AuthenticationService auth) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Auto-lock Time'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Choose how long the app stays unlocked when in background:'),
+            const SizedBox(height: 16),
+            ...([1, 2, 5, 10, 15, 30].map((minutes) => RadioListTile<int>(
+              title: Text('$minutes ${minutes == 1 ? 'minute' : 'minutes'}'),
+              value: minutes,
+              groupValue: auth.autoLockTime,
+              onChanged: (value) {
+                if (value != null) {
+                  auth.setAutoLockTime(value);
+                  Navigator.pop(context);
+                  _showSnackBar('Auto-lock time updated', Colors.green, Icons.check_circle);
+                }
+              },
+            ))),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRemoveSecurityDialog(AuthenticationService auth) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Remove Security?'),
+          ],
+        ),
+        content: const Text(
+          'This will remove all security features including PIN, password, pattern, and biometric authentication. Your packet analyzer will be accessible without any protection.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await auth.disableAuthentication();
+              Navigator.pop(context);
+              Navigator.pop(context);
+              _showSnackBar('Security disabled', Colors.orange, Icons.info);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showSettingsDialog() {
@@ -1904,22 +3353,24 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('About NetFlow Pro'),
+        title: const Text('About Andronet'),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Professional Network Packet Analyzer'),
+            Text('Professional Network Security Analysis Tool'),
             SizedBox(height: 8),
-            Text('Version 5.1.0 • Merged Edition'),
+            Text('Version 6.1.0 • Secure Edition by CipherSec'),
             SizedBox(height: 16),
             Text('Features:', style: TextStyle(fontWeight: FontWeight.bold)),
             Text('• Real-time packet capture & analysis'),
             Text('• Multiple capture modes (VPN, Root, PCAP)'),
-            Text('• Advanced protocol analytics & statistics'),
+            Text('• Enhanced VpnController integration'),
+            Text('• Advanced authentication & security'),
             Text('• Professional UI with Material 3 design'),
+            Text('• Native Bridge integration'),
             Text('• Export functionality for captured packets'),
-            Text('• Comprehensive packet inspection'),
+            Text('• Comprehensive system information'),
             Text('• Performance optimized with buffering'),
           ],
         ),
