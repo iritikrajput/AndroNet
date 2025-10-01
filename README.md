@@ -448,9 +448,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **Flutter Team** - For the amazing cross-platform framework
 - **Android Open Source Project** - For VPN service APIs
 
-## 📧 Contact
-
-**Ritik Rajput** - [@iritikrajput](https://github.com/iritikrajput)
 
 Project Link: [https://github.com/iritikrajput/AndroNet](https://github.com/iritikrajput/AndroNet)
 
