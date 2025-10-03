@@ -218,6 +218,10 @@ class ZdtunVpnService : VpnService() {
                     "${packet[18].toInt() and 0xFF}.${packet[19].toInt() and 0xFF}"
 
             val ihl = (packet[0].toInt() and 0x0F) * 4
+            // Validate IHL - must be at least 20 and within packet bounds
+            if (ihl < 20 || ihl > packet.size) {
+                return null
+            }
             val protocolName: String
             var sourcePort = 0
             var destPort = 0
