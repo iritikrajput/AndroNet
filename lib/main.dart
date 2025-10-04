@@ -892,7 +892,7 @@ class PacketAnalyzerApp extends StatelessWidget {
               brightness: Brightness.light,
             ).copyWith(
               surface: const Color(0xFFFAFBFC),
-              surfaceVariant: const Color(0xFFF1F3F4),
+              surfaceContainerHighest: const Color(0xFFF1F3F4),
             ),
         cardTheme: const CardThemeData(
           elevation: 2,
@@ -1366,7 +1366,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     fontSize: 12,
                     color: Theme.of(
                       context,
-                    ).colorScheme.onSurface.withOpacity(0.7),
+                    ).colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1434,8 +1434,8 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: _isCapturing
-            ? Colors.green.withOpacity(0.1)
-            : Colors.grey.withOpacity(0.1),
+            ? Colors.green.withValues(alpha: 0.1)
+            : Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: _isCapturing ? Colors.green : Colors.grey,
@@ -1481,15 +1481,15 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
-            Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+            Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+            Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
         ),
       ),
       child: Padding(
@@ -1500,10 +1500,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: _selectedCaptureMode.color.withOpacity(0.1),
+                color: _selectedCaptureMode.color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: _selectedCaptureMode.color.withOpacity(0.3),
+                  color: _selectedCaptureMode.color.withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -1611,9 +1611,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.05),
+          color: color.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
@@ -1628,7 +1628,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               label,
               style: TextStyle(
                 fontSize: 10,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -1642,7 +1642,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(12),
       ),
       child: TabBar(
@@ -1654,7 +1654,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         labelColor: Colors.white,
         unselectedLabelColor: Theme.of(
           context,
-        ).colorScheme.onSurface.withOpacity(0.6),
+        ).colorScheme.onSurface.withValues(alpha: 0.6),
         dividerColor: Colors.transparent,
         labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         unselectedLabelStyle: const TextStyle(fontSize: 12),
@@ -2090,7 +2090,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                 ),
               ),
               selected: isSelected,
-              selectedColor: _protocolColor(protocol).withOpacity(0.2),
+              selectedColor: _protocolColor(protocol).withValues(alpha: 0.2),
               checkmarkColor: _protocolColor(protocol),
               onSelected: (_) =>
                   setState(() => _selectedProtocolFilter = protocol),
@@ -2217,7 +2217,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: protocolColor.withOpacity(0.1),
+              color: protocolColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Center(
@@ -2269,7 +2269,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     fontSize: 10,
                     color: Theme.of(
                       context,
-                    ).colorScheme.onSurface.withOpacity(0.6),
+                    ).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -2342,9 +2342,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.05),
+          color: color.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
@@ -2362,7 +2362,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               title,
               style: TextStyle(
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
           ],
@@ -2603,16 +2603,15 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     return {};
   }
 
-  String _getAnomalyType(PacketInfo packet) {
-    if (packet.anomalyScore != null && packet.anomalyScore! > 0.8) {
-      return 'unusual_traffic';
+  String _getAnomalyDescription(PacketInfo packet) {
+    if (packet.anomalyScore != null) {
+      return 'ML analysis detected ${(packet.anomalyScore! * 100).toStringAsFixed(0)}% anomaly score';
     }
     if (packet.payloadAnalysis?['securityFlags'] != null) {
       final flags = packet.payloadAnalysis!['securityFlags'] as List;
-      if (flags.contains('EXECUTABLE_CONTENT_DETECTED')) return 'malicious_content';
-      if (flags.contains('SUSPICIOUS_CODE_EXECUTION')) return 'suspicious_activity';
+      return 'Security flags: ${flags.join(', ')}';
     }
-    return 'unusual_traffic';
+    return 'Unusual network behavior detected';
   }
 
   String _getAnomalySeverity(PacketInfo packet) {
@@ -2622,18 +2621,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     return 'low';
   }
 
-  String _getAnomalyTitle(PacketInfo packet) {
-    if (packet.anomalyScore != null && packet.anomalyScore! > 0.8) {
-      return 'Unusual Traffic Pattern';
-    }
-    if (packet.payloadAnalysis?['securityFlags'] != null) {
-      final flags = packet.payloadAnalysis!['securityFlags'] as List;
-      if (flags.contains('EXECUTABLE_CONTENT_DETECTED')) return 'Malicious Content';
-      if (flags.contains('SUSPICIOUS_CODE_EXECUTION')) return 'Suspicious Activity';
-    }
-    return 'Anomaly Detected';
-  }
-
+  // Helper methods for UI functionality
   List<PacketInfo> get _filteredPackets {
     if (_selectedProtocolFilter == "ALL") {
       return _packets;
@@ -2645,31 +2633,18 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   Color _protocolColor(String protocol) {
     switch (protocol.toUpperCase()) {
-      case 'HTTP':
-        return Colors.blue;
-      case 'HTTPS':
-        return Colors.green;
-      case 'DNS':
-        return Colors.orange;
-      case 'TLS':
-      case 'SSL':
-        return Colors.teal;
-      case 'QUIC':
-        return Colors.purple;
-      case 'SIP':
-        return Colors.cyan;
-      case 'RTP':
-        return Colors.indigo;
-      case 'SMB':
-        return Colors.brown;
-      case 'NTP':
-        return Colors.lime;
-      case 'TCP':
-        return Colors.blueGrey;
-      case 'UDP':
-        return Colors.deepOrange;
-      default:
-        return Colors.grey;
+      case 'HTTP': return Colors.blue;
+      case 'HTTPS': return Colors.green;
+      case 'DNS': return Colors.orange;
+      case 'TLS': return Colors.teal;
+      case 'QUIC': return Colors.purple;
+      case 'SIP': return Colors.cyan;
+      case 'RTP': return Colors.indigo;
+      case 'SMB': return Colors.brown;
+      case 'NTP': return Colors.lime;
+      case 'TCP': return Colors.blueGrey;
+      case 'UDP': return Colors.deepOrange;
+      default: return Colors.grey;
     }
   }
 
@@ -2688,9 +2663,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
               // VPN permission request is handled by VpnController.prepareVpn()
+              await VpnController.prepareVpn();
             },
             child: const Text('Grant Permission'),
           ),
@@ -2768,7 +2744,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Row(
@@ -2869,7 +2845,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: isSelected
-                  ? mode.color.withOpacity(0.1)
+                  ? mode.color.withValues(alpha: 0.1)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -2883,7 +2859,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: isEnabled
-                        ? mode.color.withOpacity(0.1)
+                        ? mode.color.withValues(alpha: 0.1)
                         : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -2916,7 +2892,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.1),
+                                color: Colors.orange.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: const Text(
@@ -2939,7 +2915,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                           color: isEnabled
                               ? Theme.of(
                                   context,
-                                ).colorScheme.onSurface.withOpacity(0.6)
+                                ).colorScheme.onSurface.withValues(alpha: 0.6)
                               : Colors.grey,
                         ),
                       ),
@@ -3016,7 +2992,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -3156,7 +3132,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     subtitle,
                     style: TextStyle(
                       fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
