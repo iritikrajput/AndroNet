@@ -116,25 +116,25 @@ val stats = PcapWriter.stopCapture()
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Flutter UI Layer                     │
-│            (Dashboard & Visualizations)              │
-└─────────────────┬───────────────────────────────────┘
-                  │
-        ┌─────────┴─────────┐
-        │   MainActivity    │
-        │  MethodChannel    │
-        └─────────┬─────────┘
-                  │
-        ┌─────────▼──────────────────┐
-        │  PacketAnalysisManager     │
-        │  (Feature Orchestrator)    │
-        └─────────┬──────────────────┘
-                  │
-        ┌─────────┼─────────┬─────────┬──────────┐
-        │         │         │         │          │
-  ┌─────▼─────┐ │ ┌───────▼──────┐ │ ┌────────▼────────┐
-  │TrafficStats│ │ │PacketDissector│ │ │AnomalyDetector  │
+  ┌─────────────────────────────────────────────────────┐
+  │                 Flutter UI Layer                    │
+  │            (Dashboard & Visualizations)             │
+  └─────────────────────────┬───────────────────────────┘
+                            │
+                  ┌─────────┴─────────┐
+                  │   MainActivity    │
+                  │  MethodChannel    │
+                  └─────────┬─────────┘
+                            │
+                  ┌─────────▼───────────────┐
+                  │  PacketAnalysisManager  │
+                  │  (Feature Orchestrator) │
+                  └────────┬────────────────┘
+                           │
+        ┌────────┬─────────┬────────┬──────────┐
+        │        │         │        │          │
+  ┌─────▼──────┐ │ ┌───────▼──────┐ │ ┌────────▼────────┐
+  │TrafficStats│ │ │PacketDissector │ │ │AnomalyDetector│
   │            │ │ │              │ │ │                 │
   │ • Metrics  │ │ │ • HTTP Parser│ │ │ • Port Scan     │
   │ • Protocol │ │ │ • DNS Parser │ │ │ • SYN Flood     │
@@ -144,9 +144,9 @@ val stats = PcapWriter.stopCapture()
   └────────────┘ │                  │ └─────────────────┘
                  │                  │
            ┌─────▼──────────────────▼─────┐
-           │       PcapWriter.kt           │
-           │   (PCAP Export Manager)       │
-           └─────────┬─────────────────────┘
+           │       PcapWriter.kt          │
+           │   (PCAP Export Manager)      │
+           └─────────┬────────────────────┘
                      │
            ┌─────────▼──────────────┐
            │   pcap_writer.c (JNI)  │
