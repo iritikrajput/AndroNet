@@ -104,7 +104,8 @@ class PacketAnalysisManager(private val context: Context) {
             }
 
             // 3. Anomaly detection
-            AnomalyDetector.analyzePacket(enrichedPacket)
+            val payload = extractPayload(rawPacket, packetInfo)
+            AnomalyDetector.analyzePacket(enrichedPacket, payload)
 
             // 4. PCAP export (if active)
             if (isPcapExporting && rawPacket != null) {

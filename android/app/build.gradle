@@ -43,7 +43,7 @@ android {
 
     defaultConfig {
         applicationId "com.example.packet_analyzer"
-        minSdkVersion 21
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
