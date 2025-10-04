@@ -8,6 +8,7 @@ import 'auth/auth_service.dart';
 import 'auth/auth_wrapper.dart';
 import 'auth/login_screen.dart';
 import 'auth/setup_auth_screen.dart';
+import 'enhanced_ui_components.dart';
 
 // ================= CAPTURE MODE ENUM =================
 enum CaptureMode {
@@ -430,6 +431,12 @@ class PacketInfo {
   final String sourceIp, destinationIp, protocol, timestamp, payload;
   final int sourcePort, destinationPort, size;
   final String? direction, flags, appName;
+  final double? anomalyScore;
+  final Map<String, dynamic>? payloadAnalysis;
+  final Map<String, dynamic>? httpData;
+  final Map<String, dynamic>? dnsData;
+  final Map<String, dynamic>? tlsData;
+  final Map<String, dynamic>? quicData;
 
   const PacketInfo({
     required this.sourceIp,
@@ -443,6 +450,12 @@ class PacketInfo {
     this.direction,
     this.flags,
     this.appName,
+    this.anomalyScore,
+    this.payloadAnalysis,
+    this.httpData,
+    this.dnsData,
+    this.tlsData,
+    this.quicData,
   });
 
   factory PacketInfo.fromMap(Map<String, dynamic> map) => PacketInfo(
@@ -459,6 +472,12 @@ class PacketInfo {
     direction: map['direction']?.toString(),
     flags: map['flags']?.toString(),
     appName: map['appName']?.toString(),
+    anomalyScore: map['anomalyScore'] != null ? double.tryParse(map['anomalyScore'].toString()) : null,
+    payloadAnalysis: map['payloadAnalysis'] as Map<String, dynamic>?,
+    httpData: map['httpData'] as Map<String, dynamic>?,
+    dnsData: map['dnsData'] as Map<String, dynamic>?,
+    tlsData: map['tlsData'] as Map<String, dynamic>?,
+    quicData: map['quicData'] as Map<String, dynamic>?,
   );
 
   String get formattedTime {
@@ -516,6 +535,25 @@ class NetworkMetrics {
       dataRate: _toDouble(map['dataRate']),
     );
   }
+}
+
+// Anomaly Information Model
+class AnomalyInfo {
+  final String id;
+  final String type;
+  final String severity;
+  final String title;
+  final String description;
+  final String timestamp;
+
+  const AnomalyInfo({
+    required this.id,
+    required this.type,
+    required this.severity,
+    required this.title,
+    required this.description,
+    required this.timestamp,
+  });
 }
 
 // ================= ENHANCED PACKET SERVICE WITH VPN CONTROLLER =================
@@ -854,7 +892,7 @@ class PacketAnalyzerApp extends StatelessWidget {
               brightness: Brightness.light,
             ).copyWith(
               surface: const Color(0xFFFAFBFC),
-              surfaceVariant: const Color(0xFFF1F3F4),
+              surfaceContainerHighest: const Color(0xFFF1F3F4),
             ),
         cardTheme: const CardThemeData(
           elevation: 2,
@@ -1328,7 +1366,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     fontSize: 12,
                     color: Theme.of(
                       context,
-                    ).colorScheme.onSurface.withOpacity(0.7),
+                    ).colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1396,8 +1434,8 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: _isCapturing
-            ? Colors.green.withOpacity(0.1)
-            : Colors.grey.withOpacity(0.1),
+            ? Colors.green.withValues(alpha: 0.1)
+            : Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: _isCapturing ? Colors.green : Colors.grey,
@@ -1443,15 +1481,15 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
-            Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+            Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+            Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
         ),
       ),
       child: Padding(
@@ -1462,10 +1500,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: _selectedCaptureMode.color.withOpacity(0.1),
+                color: _selectedCaptureMode.color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: _selectedCaptureMode.color.withOpacity(0.3),
+                  color: _selectedCaptureMode.color.withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -1573,9 +1611,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.05),
+          color: color.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
@@ -1590,7 +1628,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               label,
               style: TextStyle(
                 fontSize: 10,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -1604,7 +1642,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(12),
       ),
       child: TabBar(
@@ -1616,7 +1654,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         labelColor: Colors.white,
         unselectedLabelColor: Theme.of(
           context,
-        ).colorScheme.onSurface.withOpacity(0.6),
+        ).colorScheme.onSurface.withValues(alpha: 0.6),
         dividerColor: Colors.transparent,
         labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         unselectedLabelStyle: const TextStyle(fontSize: 12),
@@ -2052,7 +2090,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                 ),
               ),
               selected: isSelected,
-              selectedColor: _protocolColor(protocol).withOpacity(0.2),
+              selectedColor: _protocolColor(protocol).withValues(alpha: 0.2),
               checkmarkColor: _protocolColor(protocol),
               onSelected: (_) =>
                   setState(() => _selectedProtocolFilter = protocol),
@@ -2072,143 +2110,43 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       return _buildEmptyState();
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      reverse: _autoScroll,
-      itemCount: packets.length,
-      itemBuilder: (context, index) {
-        final packet =
-            packets[_autoScroll ? (packets.length - 1 - index) : index];
-        return _buildOptimizedPacketCard(packet);
-      },
+    return Column(
+      children: [
+        // Anomaly Detection Panel (if there are anomalies)
+        if (_shouldShowAnomalyPanel())
+          AnomalyDetectionPanel(
+            anomalies: _getActiveAnomalies(),
+            onClearAnomalies: _clearAnomalies,
+          ),
+
+        // File Carving Panel (if files detected)
+        if (_shouldShowFileCarvingPanel())
+          FileCarvingPanel(
+            payloadAnalysis: _getLatestFileAnalysis(),
+          ),
+
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            reverse: _autoScroll,
+            itemCount: packets.length,
+            itemBuilder: (context, index) {
+              final packet =
+                  packets[_autoScroll ? (packets.length - 1 - index) : index];
+              return EnhancedPacketCard(packet: packet);
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildOptimizedPacketCard(PacketInfo packet) {
-    final protocolColor = _protocolColor(packet.protocol);
+  // ================= DIALOG & UTILITY METHODS =================
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: packet.directionColor.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: InkWell(
-        onTap: () => _showPacketDetails(packet),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: protocolColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      packet.appName ?? packet.protocol,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: protocolColor,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: packet.directionColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          packet.isOutgoing
-                              ? Icons.arrow_upward
-                              : Icons.arrow_downward,
-                          size: 12,
-                          color: packet.directionColor,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          packet.displayDirection,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: packet.directionColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    packet.formattedTime,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withOpacity(0.6),
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.data_usage, size: 14, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${packet.size} bytes',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  if (packet.flags != null) ...[
-                    const SizedBox(width: 16),
-                    Icon(Icons.flag, size: 14, color: Colors.grey.shade600),
-                    const SizedBox(width: 4),
-                    Text(packet.flags!, style: const TextStyle(fontSize: 11)),
-                  ],
-                  const Spacer(),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 16,
-                    color: Colors.grey.shade400,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+  void _showPacketDetails(PacketInfo packet) {
+    showDialog(
+      context: context,
+      builder: (context) => EnhancedPacketDetailsDialog(packet: packet),
     );
   }
 
@@ -2279,7 +2217,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: protocolColor.withOpacity(0.1),
+              color: protocolColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Center(
@@ -2331,7 +2269,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     fontSize: 10,
                     color: Theme.of(
                       context,
-                    ).colorScheme.onSurface.withOpacity(0.6),
+                    ).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -2404,9 +2342,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.05),
+          color: color.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
@@ -2424,7 +2362,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               title,
               style: TextStyle(
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
           ],
@@ -2605,20 +2543,160 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
-  Widget _buildEnhancedFAB() {
-    return FloatingActionButton.extended(
-      onPressed: _toggleCapture,
-      icon: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        child: Icon(
-          _isCapturing ? Icons.stop : Icons.play_arrow,
-          key: ValueKey(_isCapturing),
-        ),
-      ),
-      label: Text(_isCapturing ? 'Stop' : 'Start'),
-      backgroundColor: _isCapturing ? Colors.red : _selectedCaptureMode.color,
-      elevation: 3,
+  // ================= ENHANCED UI HELPERS =================
+
+  bool _shouldShowAnomalyPanel() {
+    // Show if there are packets with high anomaly scores or security flags
+    return _packets.any((packet) =>
+      (packet.anomalyScore != null && packet.anomalyScore! > 0.7) ||
+      (packet.payloadAnalysis?['securityFlags'] != null &&
+       (packet.payloadAnalysis!['securityFlags'] as List).isNotEmpty)
     );
+  }
+
+  List<AnomalyInfo> _getActiveAnomalies() {
+    return _packets
+        .where((packet) =>
+            (packet.anomalyScore != null && packet.anomalyScore! > 0.7) ||
+            (packet.payloadAnalysis?['securityFlags'] != null &&
+             (packet.payloadAnalysis!['securityFlags'] as List).isNotEmpty))
+        .take(5)
+        .map((packet) => AnomalyInfo(
+          id: '${packet.sourceIp}_${packet.timestamp}',
+          type: _getAnomalyType(packet),
+          severity: _getAnomalySeverity(packet),
+          title: _getAnomalyTitle(packet),
+          description: _getAnomalyDescription(packet),
+          timestamp: packet.formattedTime,
+        ))
+        .toList();
+  }
+
+  void _clearAnomalies() {
+    setState(() {
+      // Remove packets with anomalies or mark them as reviewed
+      _packets.removeWhere((packet) =>
+        (packet.anomalyScore != null && packet.anomalyScore! > 0.7) ||
+        (packet.payloadAnalysis?['securityFlags'] != null &&
+         (packet.payloadAnalysis!['securityFlags'] as List).isNotEmpty)
+      );
+    });
+  }
+
+  bool _shouldShowFileCarvingPanel() {
+    // Show if there are packets with file detection or extraction
+    return _packets.any((packet) =>
+      (packet.payloadAnalysis?['detectedFiles'] != null &&
+       (packet.payloadAnalysis!['detectedFiles'] as List).isNotEmpty) ||
+      (packet.payloadAnalysis?['extractedFiles'] != null &&
+       (packet.payloadAnalysis!['extractedFiles'] as List).isNotEmpty)
+    );
+  }
+
+  Map<String, dynamic> _getLatestFileAnalysis() {
+    // Get the most recent packet with file analysis
+    for (var packet in _packets.reversed) {
+      if (packet.payloadAnalysis != null) {
+        return packet.payloadAnalysis!;
+      }
+    }
+    return {};
+  }
+
+  String _getAnomalyDescription(PacketInfo packet) {
+    if (packet.anomalyScore != null) {
+      return 'ML analysis detected ${(packet.anomalyScore! * 100).toStringAsFixed(0)}% anomaly score';
+    }
+    if (packet.payloadAnalysis?['securityFlags'] != null) {
+      final flags = packet.payloadAnalysis!['securityFlags'] as List;
+      return 'Security flags: ${flags.join(', ')}';
+    }
+    return 'Unusual network behavior detected';
+  }
+
+  String _getAnomalySeverity(PacketInfo packet) {
+    if (packet.anomalyScore != null && packet.anomalyScore! > 0.9) return 'critical';
+    if (packet.anomalyScore != null && packet.anomalyScore! > 0.8) return 'high';
+    if (packet.payloadAnalysis?['securityFlags'] != null) return 'medium';
+    return 'low';
+  }
+
+  // Helper methods for UI functionality
+  List<PacketInfo> get _filteredPackets {
+    if (_selectedProtocolFilter == "ALL") {
+      return _packets;
+    }
+    return _packets
+        .where((packet) => packet.protocol.toUpperCase() == _selectedProtocolFilter)
+        .toList();
+  }
+
+  Color _protocolColor(String protocol) {
+    switch (protocol.toUpperCase()) {
+      case 'HTTP': return Colors.blue;
+      case 'HTTPS': return Colors.green;
+      case 'DNS': return Colors.orange;
+      case 'TLS': return Colors.teal;
+      case 'QUIC': return Colors.purple;
+      case 'SIP': return Colors.cyan;
+      case 'RTP': return Colors.indigo;
+      case 'SMB': return Colors.brown;
+      case 'NTP': return Colors.lime;
+      case 'TCP': return Colors.blueGrey;
+      case 'UDP': return Colors.deepOrange;
+      default: return Colors.grey;
+    }
+  }
+
+  void _showVpnPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('VPN Permission Required'),
+        content: const Text(
+          'AndroNet needs VPN permission to capture and analyze network packets. '
+          'Please grant VPN permission in the next dialog.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              // VPN permission request is handled by VpnController.prepareVpn()
+              await VpnController.prepareVpn();
+            },
+            child: const Text('Grant Permission'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSnackBar(String message, Color backgroundColor, IconData icon) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: backgroundColor,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _toggleCapture() async {
+    if (_isCapturing) {
+      await _stopCapture();
+    } else {
+      await _startCapture();
+    }
   }
 
   // ================= DIALOG & UTILITY METHODS =================
@@ -2626,189 +2704,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   void _showPacketDetails(PacketInfo packet) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.7,
-            maxWidth: MediaQuery.of(context).size.width * 0.9,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: _protocolColor(packet.protocol),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        packet.protocol.isNotEmpty
-                            ? packet.protocol.substring(0, 1)
-                            : '?',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Packet Details',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            '${packet.appName ?? packet.protocol} • ${packet.displayDirection} • ${packet.formattedTime}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildDetailSection('Network Information', [
-                        _buildDetailRow(
-                          'Source',
-                          '${packet.sourceIp}:${packet.sourcePort}',
-                        ),
-                        _buildDetailRow(
-                          'Destination',
-                          '${packet.destinationIp}:${packet.destinationPort}',
-                        ),
-                        _buildDetailRow('Protocol', packet.appName ?? packet.protocol),
-                        if (packet.appName != null && packet.appName != packet.protocol)
-                          _buildDetailRow('Transport', packet.protocol),
-                        _buildDetailRow('Direction', packet.displayDirection),
-                      ]),
-                      const SizedBox(height: 16),
-                      _buildDetailSection('Packet Information', [
-                        _buildDetailRow('Size', '${packet.size} bytes'),
-                        _buildDetailRow('Timestamp', packet.formattedTime),
-                        _buildDetailRow('Captured via', 'VpnController'),
-                        if (packet.flags != null)
-                          _buildDetailRow('Flags', packet.flags!),
-                      ]),
-                      if (packet.payload.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          'Payload Data',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: SelectableText(
-                            packet.payload,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailSection(String title, List<Widget> children) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.surfaceVariant.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: children,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              '$label:',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(value, style: const TextStyle(fontSize: 12)),
-          ),
-        ],
-      ),
+      builder: (context) => EnhancedPacketDetailsDialog(packet: packet),
     );
   }
 
@@ -2848,7 +2744,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Row(
@@ -2949,7 +2845,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: isSelected
-                  ? mode.color.withOpacity(0.1)
+                  ? mode.color.withValues(alpha: 0.1)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -2963,7 +2859,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: isEnabled
-                        ? mode.color.withOpacity(0.1)
+                        ? mode.color.withValues(alpha: 0.1)
                         : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -2996,7 +2892,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.1),
+                                color: Colors.orange.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: const Text(
@@ -3019,7 +2915,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                           color: isEnabled
                               ? Theme.of(
                                   context,
-                                ).colorScheme.onSurface.withOpacity(0.6)
+                                ).colorScheme.onSurface.withValues(alpha: 0.6)
                               : Colors.grey,
                         ),
                       ),
@@ -3096,7 +2992,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -3236,7 +3132,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     subtitle,
                     style: TextStyle(
                       fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
