@@ -40,53 +40,53 @@ You asked for **complex, complete implementation** - here it is!
 ## 🏗️ Architecture
 
 ```
-┌─────────────┐
-│   Device    │
-│     App     │
-└──────┬──────┘
-       │ 1. Outgoing Packet
-       ▼
-┌─────────────────────────────────────────┐
-│      ProductionVpnService               │
-│                                         │
-│  ┌────────────────────────────────┐   │
-│  │  TCP State Machine              │   │
-│  │  - SYN handling                 │   │
-│  │  - Sequence tracking            │   │
-│  │  - Connection states            │   │
-│  └────────────────────────────────┘   │
-│                                         │
-│  2. Extract payload                     │
-│  3. Track state & seq numbers           │
-│  4. Create protected socket             │
-│  5. Forward to internet                 │
-└─────────┬───────────────────────────────┘
-          │
-          ▼
-    ┌──────────┐
-    │ Internet │
-    │  Server  │
-    └─────┬────┘
-          │ 6. Response
-          ▼
-┌─────────────────────────────────────────┐
-│    Response Handler (Background)        │
-│                                         │
-│  7. Read response from socket           │
-│  8. Update TCP state & seq numbers      │
-│  9. Build complete packet with:         │
-│     - IP header                         │
-│     - TCP header (proper seq/ack)       │
-│     - Payload                           │
-│  10. Calculate checksums                │
-│  11. Write to TUN interface             │
-└─────────┬───────────────────────────────┘
-          │
-          ▼
-    ┌─────────────┐
-    │   Device    │
-    │     App     │
-    └─────────────┘
+                                    ┌─────────────┐
+                                    │   Device    │
+                                    │     App     │
+                                    └──────┬──────┘
+                                           │ 1. Outgoing Packet
+                                           ▼
+                        ┌─────────────────────────────────────────┐
+                        │      ProductionVpnService               │
+                        │                                         │
+                        │  ┌────────────────────────────────┐     │
+                        │  │  TCP State Machine             │     │
+                        │  │  - SYN handling                │     │
+                        │  │  - Sequence tracking           │     │
+                        │  │  - Connection states           │     │
+                        │  └────────────────────────────────┘     │
+                        │                                         │
+                        │  2. Extract payload                     │
+                        │  3. Track state & seq numbers           │
+                        │  4. Create protected socket             │
+                        │  5. Forward to internet                 │
+                        └──────────────────┬──────────────────────┘
+                                           │
+                                           ▼
+                                     ┌──────────┐
+                                     │ Internet │
+                                     │  Server  │
+                                     └─────┬────┘
+                                           │ 6. Response
+                                           ▼
+                       ┌─────────────────────────────────────────┐
+                       │    Response Handler (Background)        │
+                       │                                         │
+                       │  7. Read response from socket           │
+                       │  8. Update TCP state & seq numbers      │
+                       │  9. Build complete packet with:         │
+                       │     - IP header                         │
+                       │     - TCP header (proper seq/ack)       │
+                       │     - Payload                           │
+                       │  10. Calculate checksums                │
+                       │  11. Write to TUN interface             │
+                       └───────────────────┬─────────────────────┘
+                                           │
+                                           ▼
+                                     ┌─────────────┐
+                                     │   Device    │
+                                     │     App     │
+                                     └─────────────┘
 ```
 
 ---
