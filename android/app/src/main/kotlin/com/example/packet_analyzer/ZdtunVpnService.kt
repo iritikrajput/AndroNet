@@ -119,8 +119,8 @@ class ZdtunVpnService : VpnService() {
                                 "${packetInfo["sourceIp"]}:${packetInfo["sourcePort"]} → " +
                                 "${packetInfo["destinationIp"]}:${packetInfo["destinationPort"]}")
 
-                        // Send to Flutter for display
-                        sendPacketToFlutter(packetInfo)
+                        // Send to Flutter for display (with raw packet for Phase 2 processing)
+                        sendPacketToFlutter(packetInfo, packet)
                     }
 
                     // Forward packet to zdtun for processing
@@ -182,8 +182,8 @@ class ZdtunVpnService : VpnService() {
                         "${packetInfo["sourceIp"]}:${packetInfo["sourcePort"]} → " +
                         "${packetInfo["destinationIp"]}:${packetInfo["destinationPort"]}")
 
-                // Send to Flutter for display
-                sendPacketToFlutter(packetInfo)
+                // Send to Flutter for display (with raw packet for Phase 2 processing)
+                sendPacketToFlutter(packetInfo, packet)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error writing to TUN: ${e.message}")
@@ -337,10 +337,17 @@ class ZdtunVpnService : VpnService() {
         }
     }
 
-    private fun sendPacketToFlutter(packetInfo: Map<String, Any>) {
+    private fun sendPacketToFlutter(packetInfo: Map<String, Any>, rawPacket: ByteArray? = null) {
         try {
             Log.d(TAG, "🚀 sendPacketToFlutter called with: $packetInfo")
             Log.d(TAG, "🚀 packetSink is: ${if (packetSink == null) "NULL" else "NOT NULL"}")
+
+            // Phase 2: Process packet through PacketAnalysisManager
+            try {
+                PacketAnalysisManager.getInstance().processPacket(packetInfo, rawPacket)
+            } catch (e: Exception) {
+                Log.w(TAG, "PacketAnalysisManager not available: ${e.message}")
+            }
 
             // EventChannel.EventSink must be called from main thread
             mainHandler.post {

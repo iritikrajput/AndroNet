@@ -28,6 +28,10 @@ class MainActivity : FlutterFragmentActivity() {
         ZdtunVpnService.setMethodChannel(methodChannel)
         Log.i("MainActivity", "✅ Method channel set for ZdtunVpnService")
 
+        // Initialize PacketAnalysisManager with context and channel
+        PacketAnalysisManager.initialize(this, methodChannel)
+        Log.i("MainActivity", "✅ PacketAnalysisManager initialized")
+
         // Setup EventChannel for live packet streaming
         val packetEventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, "packet_stream")
         packetEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
@@ -121,6 +125,28 @@ class MainActivity : FlutterFragmentActivity() {
                             "freeMemory" to Runtime.getRuntime().freeMemory(),
                             "availableProcessors" to Runtime.getRuntime().availableProcessors()
                         ))
+                    }
+                    // Phase 2: Analysis methods
+                    "startAnalysis" -> {
+                        PacketAnalysisManager.getInstance().startAnalysis()
+                        result.success("Analysis started")
+                    }
+                    "stopAnalysis" -> {
+                        PacketAnalysisManager.getInstance().stopAnalysis()
+                        result.success("Analysis stopped")
+                    }
+                    "getDashboardData" -> {
+                        val dashboardData = PacketAnalysisManager.getInstance().getDashboardData()
+                        result.success(dashboardData)
+                    }
+                    "startPcapExport" -> {
+                        val filename = call.argument<String>("filename") ?: "capture.pcap"
+                        val success = PacketAnalysisManager.getInstance().startPcapExport(filename)
+                        result.success(if (success) "PCAP export started" else null)
+                    }
+                    "stopPcapExport" -> {
+                        PacketAnalysisManager.getInstance().stopPcapExport()
+                        result.success("PCAP export stopped")
                     }
                     else -> result.notImplemented()
                 }

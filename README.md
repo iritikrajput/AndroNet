@@ -96,6 +96,26 @@ Real-time threat detection with 5 built-in algorithms:
 ### 🎯 **Intelligent Protocol Detection**
 Recognizes **65+ application protocols** including HTTPS, DNS, SSH, FTP, SMTP, MySQL, PostgreSQL, MongoDB, Redis, SIP, RDP, VNC, and many more.
 
+
+### 🎨 **Advanced UI Features**
+
+**Protocol Filtering**
+- **16 Predefined Filters**: ALL, HTTP, HTTPS, DNS, TCP, UDP, TLS, QUIC, ICMP, DHCP, ARP, SSH, FTP, SMTP, POP3, IMAP
+- **Color-Coded Chips**: Each protocol has a unique color for easy identification
+- **Packet Counts**: Real-time counts displayed for each filter (e.g., "HTTP (25)")
+- **Smart Display**: Filters show/hide based on captured traffic
+- **Dual Matching**: Filters work on both transport (TCP/UDP) and application (HTTP/HTTPS) layers
+
+**Visual Protocol Identification**
+- HTTP/HTTPS → Blue | DNS → Purple | TCP → Green | UDP → Orange
+- ICMP → Red | TLS/SSL → Indigo | QUIC → Teal | DHCP → Pink | ARP → Brown
+
+**Real-Time DPI Display**
+- Enriched packet information with application-layer details
+- HTTP URLs, methods, and status codes visible in logs
+- DNS queries and responses tracked
+- TLS server names (SNI) extracted
+- DHCP message types identified
 ---
 
 ## 🏗️ System Architecture

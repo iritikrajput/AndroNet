@@ -26,7 +26,24 @@ class PacketAnalysisManager(private val context: Context) {
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     companion object {
+        @Volatile
+        private var instance: PacketAnalysisManager? = null
         private var methodChannel: MethodChannel? = null
+
+        fun getInstance(): PacketAnalysisManager {
+            return instance ?: throw IllegalStateException("PacketAnalysisManager not initialized")
+        }
+
+        fun initialize(context: Context, channel: MethodChannel) {
+            if (instance == null) {
+                synchronized(this) {
+                    if (instance == null) {
+                        instance = PacketAnalysisManager(context)
+                        methodChannel = channel
+                    }
+                }
+            }
+        }
 
         fun setMethodChannel(channel: MethodChannel) {
             methodChannel = channel
@@ -103,6 +120,26 @@ class PacketAnalysisManager(private val context: Context) {
                 packetInfo
             }
 
+
+            // Check if DPI enriched the packet with new fields
+            if (enrichedPacket.size > packetInfo.size) {
+                val dpiFields = enrichedPacket.keys.filter {
+                    it.startsWith("http_") || it.startsWith("dns_") ||
+                    it.startsWith("tls_") || it.startsWith("dhcp_")
+                }
+                if (dpiFields.isNotEmpty()) {
+                    Log.d(TAG, "🔍 DPI found for ${enrichedPacket["protocol"]}: ${dpiFields.joinToString(", ") { "$it=${enrichedPacket[it]}" }}")
+
+                    // Send enriched packet with DPI data back to Flutter
+                    mainHandler.post {
+                        try {
+                            methodChannel?.invokeMethod("onPacketEnriched", enrichedPacket)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error sending enriched packet: ${e.message}")
+                        }
+                    }
+                }
+            }
             // 3. Anomaly detection
             val payload = extractPayload(rawPacket, packetInfo)
             AnomalyDetector.analyzePacket(enrichedPacket, payload)
@@ -206,6 +243,13 @@ class PacketAnalysisManager(private val context: Context) {
     }
 
     /**
+     * Get comprehensive dashboard data
+     */
+    fun getDashboardData(): Map<String, Any> {
+        return TrafficStatistics.getDashboardData()
+    }
+
+    /**
      * Handle detected anomaly
      */
     private fun handleAnomaly(anomaly: AnomalyDetector.Anomaly) {
@@ -221,7 +265,14 @@ class PacketAnalysisManager(private val context: Context) {
             "details" to anomaly.details
         )
 
-        notifyFlutter("anomalyDetected", anomalyData)
+        // Send directly to Flutter via onAnomalyDetected handler
+        mainHandler.post {
+            try {
+                methodChannel?.invokeMethod("onAnomalyDetected", anomalyData)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending anomaly to Flutter: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -242,8 +293,28 @@ class PacketAnalysisManager(private val context: Context) {
 
                 // Send periodic stats update to Flutter (every 5 seconds)
                 if (System.currentTimeMillis() - lastStatsUpdate > 5000) {
-                    val stats = TrafficStatistics.getSummary()
-                    notifyFlutter("statsUpdate", stats)
+                    // Send dashboard update
+                    val dashboardData = TrafficStatistics.getDashboardData()
+                    mainHandler.post {
+                        try {
+                            methodChannel?.invokeMethod("onDashboardUpdate", dashboardData)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error sending dashboard update: ${e.message}")
+                        }
+                    }
+
+                    // Send PCAP status if exporting
+                    if (isPcapExporting) {
+                        val pcapStatus = getPcapExportStatus()
+                        mainHandler.post {
+                            try {
+                                methodChannel?.invokeMethod("onPcapStatusUpdate", pcapStatus)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error sending PCAP status: ${e.message}")
+                            }
+                        }
+                    }
+
                     lastStatsUpdate = System.currentTimeMillis()
                 }
 
