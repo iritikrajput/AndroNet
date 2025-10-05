@@ -291,5 +291,5 @@ MIT License - see LICENSE file
 ---
 
 <p align="center">
-  <strong>Made By Team-CipherSEC for the cybersecurity community</strong>
+  <strong>Made By Team CipherSec for the cybersecurity community</strong>
 </p>
