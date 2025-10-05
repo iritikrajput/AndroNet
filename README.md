@@ -121,71 +121,71 @@ Recognizes **65+ application protocols** including HTTPS, DNS, SSH, FTP, SMTP, M
 ## 🏗️ System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Flutter UI Layer                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐  │
-│  │ Packet List  │  │  Statistics  │  │  Anomaly Alerts        │  │
-│  │  Display     │  │  Dashboard   │  │  Notifications         │  │
-│  └──────────────┘  └──────────────┘  └────────────────────────┘  │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │ EventChannel / MethodChannel
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      MainActivity.kt                                 │
-│    • Root detection & mode selection                                 │
-│    • Method handlers (startVpn, startLibpcap, exportPcap)           │
-│    • EventChannel setup for packet streaming                        │
-└─────────────────────┬──────────────────┬────────────────────────────┘
-                      │                  │
-      ┌───────────────▼────────┐  ┌──────▼────────────────┐
-      │                        │  │                       │
-┌─────▼──────────────────┐ ┌───▼──────────────────────┐
-│  ZdtunVpnService.kt    │ │  NetHunterService.kt     │
-│  (VPN Mode)            │ │  (Libpcap Mode)          │
-│                        │ │                          │
-│  • TUN interface mgmt  │ │  • Libpcap integration   │
-│  • Packet parsing      │ │  • Raw packet capture    │
-│  • Protocol detection  │ │  • All interfaces        │
-│  • 65+ app protocols   │ │  • Wireshark-like        │
-└─────┬──────────────────┘ └───┬──────────────────────┘
-      │                        │
-      ▼                        ▼
-┌─────────────────────────────────────────────────────────┐
-│         PacketAnalysisManager.kt (Orchestrator)         │
-│    • Coordinates all Phase 2 features                   │
-│    • Lifecycle management                               │
-│    • Periodic stats updates                             │
-└───┬────────────┬─────────────┬──────────┬───────────────┘
-    │            │             │          │
-┌───▼──┐    ┌────▼────┐  ┌─────▼────┐ ┌──▼────────┐
-│ DPI  │    │ Anomaly │  │ Traffic  │ │   PCAP    │
-│      │    │ Detector│  │  Stats   │ │  Writer   │
-└───┬──┘    └────┬────┘  └─────┬────┘ └──┬────────┘
-    │            │             │          │
-    ▼            ▼             ▼          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Native Layer (C/JNI)                       │
-│  ┌────────────────┐  ┌────────────────┐  ┌──────────┐ │
-│  │ zdtun_vpn.c    │  │ libpcap_       │  │ pcap_    │ │
-│  │ (VPN Bridge)   │  │ capture.c      │  │ writer.c │ │
-│  └────┬───────────┘  └────┬───────────┘  └──────────┘ │
-└───────┼──────────────────┼────────────────────────────┘
-        │                  │
-   ┌────▼─────┐     ┌──────▼───────┐
-   │  zdtun   │     │   libpcap    │
-   │ library  │     │   library    │
-   └────┬─────┘     └──────┬───────┘
-        │                  │
-        ▼                  ▼
-┌──────────────────────────────────────┐
-│  TUN / Network Interfaces            │
-│  (wlan0, rmnet0, eth0, etc.)         │
-└──────────────┬───────────────────────┘
-               │
-               ▼
-         ┌─────────────┐
-         │  Internet   │
-         └─────────────┘
+                                        ┌─────────────────────────────────────────────────────────────────────┐
+                                        │                         Flutter UI Layer                            │
+                                        │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
+                                        │  │ Packet List  │  │  Statistics  │  │  Anomaly Alerts        │     │
+                                        │  │  Display     │  │  Dashboard   │  │  Notifications         │     │
+                                        │  └──────────────┘  └──────────────┘  └────────────────────────┘     │
+                                        └────────────────────────────┬────────────────────────────────────────┘
+                                                                     │ EventChannel / MethodChannel
+                                                                     ▼
+                                        ┌─────────────────────────────────────────────────────────────────────┐
+                                        │                      MainActivity.kt                                │
+                                        │    • Root detection & mode selection                                │
+                                        │    • Method handlers (startVpn, startLibpcap, exportPcap)           │
+                                        │    • EventChannel setup for packet streaming                        │
+                                        └─────────────────────────────────┬───────────────────────────────────┘
+                                                                          │                  
+                                                            ┌─────────────▼────────────┐  
+                                                            │                          │ 
+                                                ┌───────────▼────────────┐ ┌───────────▼──────────────┐
+                                                │  ZdtunVpnService.kt    │ │  NetHunterService.kt     │
+                                                │  (VPN Mode)            │ │  (Libpcap Mode)          │
+                                                │                        │ │                          │
+                                                │  • TUN interface mgmt  │ │  • Libpcap integration   │
+                                                │  • Packet parsing      │ │  • Raw packet capture    │
+                                                │  • Protocol detection  │ │  • All interfaces        │
+                                                │  • 65+ app protocols   │ │  • Wireshark-like        │
+                                                └─────┬──────────────────┘ └──────────┬───────────────┘
+                                                      │                               │
+                                                      ▼                               ▼
+                                                ┌─────────────────────────────────────────────────────────┐
+                                                │         PacketAnalysisManager.kt (Orchestrator)         │
+                                                │    • Coordinates all Phase 2 features                   │
+                                                │    • Lifecycle management                               │
+                                                │    • Periodic stats updates                             │
+                                                └───┬────────────┬─────────────┬──────────┬───────────────┘
+                                                    │            │             │          │
+                                                ┌───▼──┐    ┌────▼────┐  ┌─────▼────┐ ┌───▼───────┐
+                                                │ DPI  │    │ Anomaly │  │ Traffic  │ │   PCAP    │
+                                                │      │    │ Detector│  │  Stats   │ │  Writer   │
+                                                └───┬──┘    └────┬────┘  └─────┬────┘ └──┬────────┘
+                                                    │            │             │          │
+                                                    ▼            ▼             ▼          ▼
+                                                ┌─────────────────────────────────────────────────────────┐
+                                                │              Native Layer (C/JNI)                       │
+                                                │  ┌────────────────┐  ┌────────────────┐  ┌──────────┐   │
+                                                │  │ zdtun_vpn.c    │  │ libpcap_       │  │ pcap_    │   │
+                                                │  │ (VPN Bridge)   │  │ capture.c      │  │ writer.c │   │
+                                                │  └────┬───────────┘  └────┬───────────┘  └──────────┘   │
+                                                └───────┼──────────────────┼──────────────────────────────┘
+                                                        │                  │
+                                                   ┌────▼─────┐     ┌──────▼───────┐
+                                                   │  zdtun   │     │   libpcap    │
+                                                   │ library  │     │   library    │
+                                                   └────┬─────┘     └──────┬───────┘
+                                                        │                  │
+                                                        ▼                  ▼
+                                                ┌──────────────────────────────────────┐
+                                                │  TUN / Network Interfaces            │
+                                                │  (wlan0, rmnet0, eth0, etc.)         │
+                                                └──────────────┬───────────────────────┘
+                                                               │
+                                                               ▼
+                                                         ┌─────────────┐
+                                                         │  Internet   │
+                                                         └─────────────┘
 ```
 
 ---
