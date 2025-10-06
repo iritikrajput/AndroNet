@@ -92,11 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changelog Sections
 
-- **🚀 Features**: New functionality added
-- **🐛 Bug Fixes**: Issues resolved
-- **📚 Documentation**: Documentation updates
-- **🔧 Maintenance**: Technical improvements, refactoring, dependency updates
-- **🔒 Security**: Security-related changes
+- ** Features**: New functionality added
+- ** Bug Fixes**: Issues resolved
+- ** Documentation**: Documentation updates
+- ** Maintenance**: Technical improvements, refactoring, dependency updates
+- ** Security**: Security-related changes
 
 ### Contributing to Changelog
 
