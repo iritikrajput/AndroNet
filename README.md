@@ -14,29 +14,30 @@
 
 ---
 
-## 📋 Problem Statement
+##  Problem Statement
 
 This application addresses the need for a **Wireshark-like packet analysis tool** that runs natively on Android devices, specifically designed to integrate with **Kali NetHunter**. It enables real-time network monitoring, deep packet inspection (DPI), and anomaly detection while running efficiently on mobile hardware.
 
 ### Target Users
-- 🔐 Penetration Testers using Kali NetHunter
-- 🌐 Network Administrators monitoring mobile networks
-- 🔬 Cybersecurity Researchers conducting traffic analysis
-- 📚 Students learning network security concepts
-- 🚨 Security Operations Teams performing incident response
+-  Penetration Testers using Kali NetHunter
+-  Network Administrators monitoring mobile networks
+-  Cybersecurity Researchers conducting traffic analysis
+-  Students learning network security concepts
+-  Security Operations Teams performing incident response
 
 ### Key Challenges Solved
-✅ **Packet Capture on Mobile** - Full packet capture without breaking internet connectivity
-✅ **Deep Packet Inspection** - Application-layer protocol analysis (HTTP, DNS, TLS, etc.)
-✅ **Dual-Mode Operation** - Works on both rooted (libpcap) and unrooted (VPN) devices
-✅ **Real-Time Analysis** - Live traffic statistics and anomaly detection
-✅ **Forensic Compatibility** - PCAP file export for Wireshark analysis
+
+- **Packet Capture on Mobile** – Full packet capture without breaking internet connectivity  
+- **Deep Packet Inspection** – Application-layer protocol analysis (HTTP, DNS, TLS, etc.)  
+- **Dual-Mode Operation** – Works on both rooted (libpcap) and unrooted (VPN) devices  
+- **Real-Time Analysis** – Live traffic statistics and anomaly detection  
+- **Forensic Compatibility** – PCAP file export for Wireshark analysis  
 
 ---
 
-## 🌟 Features
+##  Features
 
-### 📡 **Complete Network Visibility**
+###  **Complete Network Visibility**
 - **Dual-Mode Packet Capture**:
   - **VPN Mode** (Unrooted devices): Zero-setup packet capture using Android VPN API + zdtun library
   - **Libpcap Mode** (Kali NetHunter): Native libpcap integration for Wireshark-like deep inspection
@@ -44,7 +45,7 @@ This application addresses the need for a **Wireshark-like packet analysis tool*
 - **Zero Packet Loss**: Maintains full internet connectivity (0% packet drop)
 - **All Protocols**: TCP, UDP, ICMP, ARP, and more
 
-### 🔍 **Deep Packet Inspection (DPI)**
+###  **Deep Packet Inspection (DPI)**
 Advanced payload analysis for application-layer protocols:
 
 **HTTP/HTTPS Analysis**
@@ -71,7 +72,7 @@ Advanced payload analysis for application-layer protocols:
 - IP assignments (Client IP, Server IP, Gateway IP)
 - Transaction IDs
 
-### 🚨 **Security Anomaly Detection**
+###  **Security Anomaly Detection**
 Real-time threat detection with 5 built-in algorithms:
 
 1. **Port Scan Detection** - Threshold: 20+ ports in 10 seconds (Severity: HIGH)
@@ -80,24 +81,24 @@ Real-time threat detection with 5 built-in algorithms:
 4. **DNS Tunneling** - Detects excessive queries and long domain names (Severity: MEDIUM)
 5. **ARP Spoofing** - Monitors IP-to-MAC mapping changes (Severity: CRITICAL)
 
-### 📊 **Traffic Statistics & Analytics**
+###  **Traffic Statistics & Analytics**
 - Real-time metrics (packets/sec, bytes/sec, connections)
 - Protocol distribution charts
 - Top talkers by traffic volume
 - Bandwidth graphs (60-second rolling window)
 - Active connection monitoring
 
-### 📝 **PCAP File Export**
+###  **PCAP File Export**
 - Wireshark-compatible standard libpcap format
 - Microsecond timestamp precision
 - Files saved to `/sdcard/Download/AndroNet/`
 - Compatible with Wireshark, tcpdump, tshark
 
-### 🎯 **Intelligent Protocol Detection**
+###  **Intelligent Protocol Detection**
 Recognizes **65+ application protocols** including HTTPS, DNS, SSH, FTP, SMTP, MySQL, PostgreSQL, MongoDB, Redis, SIP, RDP, VNC, and many more.
 
 
-### 🎨 **Advanced UI Features**
+###  **Advanced UI Features**
 
 **Protocol Filtering**
 - **16 Predefined Filters**: ALL, HTTP, HTTPS, DNS, TCP, UDP, TLS, QUIC, ICMP, DHCP, ARP, SSH, FTP, SMTP, POP3, IMAP
@@ -118,7 +119,7 @@ Recognizes **65+ application protocols** including HTTPS, DNS, SSH, FTP, SMTP, M
 - DHCP message types identified
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 ```
                                         ┌─────────────────────────────────────────────────────────────────────┐
@@ -190,7 +191,7 @@ Recognizes **65+ application protocols** including HTTPS, DNS, SSH, FTP, SMTP, M
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Flutter SDK 3.0+
@@ -220,7 +221,7 @@ flutter install
 
 ---
 
-## 📱 Usage
+##  Usage
 
 ### VPN Mode (Unrooted)
 1. Launch app → Grant VPN permission
@@ -239,7 +240,7 @@ flutter install
 
 ---
 
-## 📊 Performance
+##  Performance
 
 | Metric | VPN Mode | Libpcap Mode |
 |--------|----------|--------------|
@@ -260,7 +261,7 @@ flutter install
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 **VPN mode not working**
 - Check VPN permission granted
@@ -274,7 +275,7 @@ flutter install
 
 ---
 
-## 🙏 Acknowledgments
+##  Acknowledgments
 
 - **PCAPdroid** - Inspiration for zdtun integration
 - **zdtun** - Packet tunneling library by @emanuele-f
