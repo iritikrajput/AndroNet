@@ -251,7 +251,7 @@ flutter install
 
 ---
 
-## 🛠️ Technical Stack
+##  Technical Stack
 
 - **UI**: Flutter 3.32.8, Dart 3.8.1
 - **Service**: Kotlin 1.8, Coroutines
