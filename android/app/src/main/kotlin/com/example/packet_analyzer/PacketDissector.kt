@@ -11,9 +11,6 @@ import java.nio.charset.StandardCharsets
 object PacketDissector {
     private const val TAG = "PacketDissector"
 
-    // File carving and payload analysis
-    private val payloadAnalyzer = PayloadAnalyzer()
-
     /**
      * Dissect a packet and extract application-layer details
      */
@@ -22,11 +19,29 @@ object PacketDissector {
         val destPort = (packetInfo["destinationPort"] as? Int) ?: 0
         val sourcePort = (packetInfo["sourcePort"] as? Int) ?: 0
 
+
         if (payload == null || payload.isEmpty()) {
             return packetInfo
         }
 
         val enrichedInfo = packetInfo.toMutableMap()
+
+        // Add payload content (both hex and ASCII)
+        val payloadHex = payload.joinToString(" ") { byte ->
+            "%02x".format(byte)
+        }.take(500) // Limit to first 500 chars for performance
+
+        val payloadAscii = buildString {
+            for (byte in payload.take(250)) { // Limit to 250 bytes
+                val char = byte.toInt() and 0xFF
+                append(if (char in 32..126) char.toChar() else '.')
+            }
+        }
+
+        enrichedInfo["payload"] = payloadAscii
+        enrichedInfo["payloadHex"] = payloadHex
+        enrichedInfo["payloadSize"] = payload.size
+
 
         try {
             when {
@@ -106,7 +121,7 @@ object PacketDissector {
             }
 
             // Analyze payload for files and security risks
-            val payloadAnalysis = payloadAnalyzer.analyzePayload(payload, packetInfo)
+            val payloadAnalysis = PayloadAnalyzer.analyzePayload(payload, packetInfo)
             if (payloadAnalysis.isNotEmpty()) {
                 enrichedInfo["payloadAnalysis"] = payloadAnalysis
             }
@@ -714,8 +729,9 @@ object PacketDissector {
                         else -> "Command $command"
                     }
                 }
+            } else if (payload.size >= 8) {
                 // SMB2/SMB3 - check for SMB2 header
-                val smb2Signature = payload.copyOfRange(4, 8)
+                val smb2Signature = payload.copyOfRange(0, 4)
                 if (smb2Signature[0] == 0xFE.toByte() && smb2Signature[1] == 'S'.toByte() &&
                     smb2Signature[2] == 'M'.toByte() && smb2Signature[3] == 'B'.toByte()) {
                     result["version"] = "SMB2/3"
@@ -747,6 +763,7 @@ object PacketDissector {
                         }
                     }
                 }
+            }
 
             result["summary"] = "${result["version"]} ${result["command"] ?: "Traffic"}"
             return result
