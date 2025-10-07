@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'models.dart';
 
 // Enhanced UI Components for Advanced Features
 
@@ -436,13 +437,20 @@ class EnhancedPacketCard extends StatelessWidget {
 
 // ================= ENHANCED PACKET DETAILS DIALOG =================
 
-class EnhancedPacketDetailsDialog extends StatelessWidget {
+class EnhancedPacketDetailsDialog extends StatefulWidget {
   final PacketInfo packet;
 
   const EnhancedPacketDetailsDialog({
     Key? key,
     required this.packet,
   }) : super(key: key);
+
+  @override
+  State<EnhancedPacketDetailsDialog> createState() => _EnhancedPacketDetailsDialogState();
+}
+
+class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialog> {
+  bool _showHexView = false;
 
   @override
   Widget build(BuildContext context) {
@@ -463,13 +471,15 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildSecurityAnalysisSection(),
+                    _buildSecurityAnalysisSection(context),
                     const SizedBox(height: 16),
-                    _buildNetworkInformationSection(),
+                    _buildNetworkInformationSection(context),
                     const SizedBox(height: 16),
-                    _buildProtocolDetailsSection(),
+                    _buildProtocolDetailsSection(context),
                     const SizedBox(height: 16),
-                    _buildPayloadAnalysisSection(),
+                    _buildPayloadDataSection(context),
+                    const SizedBox(height: 16),
+                    _buildPayloadAnalysisSection(context),
                   ],
                 ),
               ),
@@ -481,7 +491,7 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
   }
 
   Widget _buildEnhancedHeader(BuildContext context) {
-    final protocolColor = _getProtocolColor(packet.protocol);
+    final protocolColor = _getProtocolColor(widget.packet.protocol);
     final securityLevel = _getSecurityLevel();
 
     return Container(
@@ -509,7 +519,7 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              _getProtocolIcon(packet.protocol),
+              _getProtocolIcon(widget.packet.protocol),
               size: 24,
               color: Colors.white,
             ),
@@ -528,7 +538,7 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${packet.appName ?? packet.protocol} • ${packet.displayDirection} • ${packet.formattedTime}',
+                  '${widget.packet.appName ?? widget.packet.protocol} • ${widget.packet.displayDirection} • ${widget.packet.formattedTime}',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 12,
@@ -566,26 +576,26 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildSecurityAnalysisSection() {
+  Widget _buildSecurityAnalysisSection(BuildContext context) {
     final securityLevel = _getSecurityLevel();
-    final payloadAnalysis = packet.payloadAnalysis;
+    final payloadAnalysis = widget.packet.payloadAnalysis;
 
     if (securityLevel == 0 && payloadAnalysis == null) {
       return const SizedBox.shrink();
     }
 
-    return _buildDetailSection(
+    return _buildDetailSection(context,
       '🔒 Security Analysis',
       [
-        if (packet.anomalyScore != null) ...[
+        if (widget.packet.anomalyScore != null) ...[
           _buildDetailRow(
             'ML Anomaly Score',
-            '${(packet.anomalyScore! * 100).toStringAsFixed(1)}%',
-            valueColor: _getAnomalyScoreColor(packet.anomalyScore!),
+            '${(widget.packet.anomalyScore! * 100).toStringAsFixed(1)}%',
+            valueColor: _getAnomalyScoreColor(widget.packet.anomalyScore!),
           ),
           _buildDetailRow(
             'Detection Algorithm',
-            _getAnomalyDetectionMethod(packet),
+            _getAnomalyDetectionMethod(widget.packet),
           ),
         ],
         if (payloadAnalysis?['securityFlags'] != null) ...[
@@ -608,36 +618,129 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildNetworkInformationSection() {
-    return _buildDetailSection(
+  Widget _buildNetworkInformationSection(BuildContext context) {
+    return _buildDetailSection(context,
       '🌐 Network Information',
       [
-        _buildDetailRow('Source', '${packet.sourceIp}:${packet.sourcePort}'),
-        _buildDetailRow('Destination', '${packet.destinationIp}:${packet.destinationPort}'),
-        _buildDetailRow('Protocol', '${packet.protocol} (${packet.appName ?? 'Unknown'})'),
-        _buildDetailRow('Direction', packet.displayDirection),
-        _buildDetailRow('Packet Size', '${packet.size} bytes'),
-        _buildDetailRow('Captured', packet.formattedTime),
-        if (packet.flags != null) _buildDetailRow('TCP Flags', packet.flags!),
+        _buildDetailRow('Source', '${widget.packet.sourceIp}:${widget.packet.sourcePort}'),
+        _buildDetailRow('Destination', '${widget.packet.destinationIp}:${widget.packet.destinationPort}'),
+        _buildDetailRow('Protocol', '${widget.packet.protocol} (${widget.packet.appName ?? 'Unknown'})'),
+        _buildDetailRow('Direction', widget.packet.displayDirection),
+        _buildDetailRow('Packet Size', '${widget.packet.size} bytes'),
+        _buildDetailRow('Captured', widget.packet.formattedTime),
+        if (widget.packet.flags != null) _buildDetailRow('TCP Flags', widget.packet.flags!),
       ],
     );
   }
 
-  Widget _buildProtocolDetailsSection() {
+  Widget _buildProtocolDetailsSection(BuildContext context) {
     final protocolDetails = _getProtocolSpecificDetails();
 
     if (protocolDetails.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    return _buildDetailSection(
+    return _buildDetailSection(context,
       '📋 Protocol Details',
       protocolDetails.map((detail) => _buildDetailRow(detail['label']!, detail['value']!)).toList(),
     );
   }
 
-  Widget _buildPayloadAnalysisSection() {
-    final payloadAnalysis = packet.payloadAnalysis;
+  Widget _buildPayloadDataSection(BuildContext context) {
+    if (widget.packet.payload.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              '📦 Payload Data',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const Spacer(),
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _ViewToggleButton(
+                    label: 'ASCII',
+                    isSelected: !_showHexView,
+                    onTap: () => setState(() => _showHexView = false),
+                  ),
+                  _ViewToggleButton(
+                    label: 'HEX',
+                    isSelected: _showHexView,
+                    onTap: () => setState(() => _showHexView = true),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.data_usage, size: 16, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Size: ${widget.packet.payload.length} bytes',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 300),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.grey.shade700),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(
+                    _showHexView ? _toHexView(widget.packet.payload) : _toAsciiView(widget.packet.payload),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: Colors.greenAccent,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPayloadAnalysisSection(BuildContext context) {
+    final payloadAnalysis = widget.packet.payloadAnalysis;
 
     if (payloadAnalysis == null) {
       return const SizedBox.shrink();
@@ -797,7 +900,7 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailSection(String title, List<Widget> children) {
+  Widget _buildDetailSection(BuildContext context, String title, List<Widget> children) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -885,12 +988,12 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
   }
 
   int _getSecurityLevel() {
-    if (packet.payloadAnalysis?['securityFlags'] != null) {
-      final flags = packet.payloadAnalysis!['securityFlags'] as List;
+    if (widget.packet.payloadAnalysis?['securityFlags'] != null) {
+      final flags = widget.packet.payloadAnalysis!['securityFlags'] as List;
       if (flags.contains('EXECUTABLE_CONTENT_DETECTED')) return 3;
       if (flags.contains('SUSPICIOUS_CODE_EXECUTION')) return 2;
     }
-    return packet.anomalyScore != null && packet.anomalyScore! > 0.8 ? 2 : 0;
+    return widget.packet.anomalyScore != null && widget.packet.anomalyScore! > 0.8 ? 2 : 0;
   }
 
   Color _getSecurityColor(int level) {
@@ -938,42 +1041,144 @@ class EnhancedPacketDetailsDialog extends StatelessWidget {
   List<Map<String, String>> _getProtocolSpecificDetails() {
     final details = <Map<String, String>>[];
 
-    if (packet.httpData != null) {
-      final http = packet.httpData! as Map<String, String>;
+    if (widget.packet.httpData != null) {
+      final http = widget.packet.httpData!;
       details.addAll([
-        {'label': 'HTTP Method', 'value': http['method'] ?? 'Unknown'},
-        {'label': 'URI', 'value': http['uri'] ?? 'Unknown'},
-        {'label': 'Status', 'value': '${http['statusCode'] ?? ''} ${http['statusMessage'] ?? ''}'},
-        if (http['contentType'] != null) {'label': 'Content-Type', 'value': http['contentType']!},
+        {'label': 'HTTP Method', 'value': http['method']?.toString() ?? 'Unknown'},
+        {'label': 'URI', 'value': http['uri']?.toString() ?? 'Unknown'},
+        {'label': 'Status', 'value': '${http['statusCode']?.toString() ?? ''} ${http['statusMessage']?.toString() ?? ''}'},
+        if (http['contentType'] != null) {'label': 'Content-Type', 'value': http['contentType']!.toString()},
       ]);
     }
 
-    if (packet.dnsData != null) {
-      final dns = packet.dnsData! as Map<String, String>;
+    if (widget.packet.dnsData != null) {
+      final dns = widget.packet.dnsData!;
       details.addAll([
-        {'label': 'Query Type', 'value': dns['queryType'] ?? 'Unknown'},
-        {'label': 'Query Name', 'value': dns['queryName'] ?? 'Unknown'},
-        {'label': 'Response Code', 'value': dns['responseCode'] ?? 'Unknown'},
+        {'label': 'Query Type', 'value': dns['queryType']?.toString() ?? 'Unknown'},
+        {'label': 'Query Name', 'value': dns['queryName']?.toString() ?? 'Unknown'},
+        {'label': 'Response Code', 'value': dns['responseCode']?.toString() ?? 'Unknown'},
       ]);
     }
 
-    if (packet.tlsData != null) {
-      final tls = packet.tlsData! as Map<String, String>;
+    if (widget.packet.tlsData != null) {
+      final tls = widget.packet.tlsData!;
       details.addAll([
-        {'label': 'TLS Version', 'value': tls['version'] ?? 'Unknown'},
-        {'label': 'Handshake Type', 'value': tls['handshakeType'] ?? 'Unknown'},
+        {'label': 'TLS Version', 'value': tls['version']?.toString() ?? 'Unknown'},
+        {'label': 'Handshake Type', 'value': tls['handshakeType']?.toString() ?? 'Unknown'},
       ]);
     }
 
-    if (packet.quicData != null) {
-      final quic = packet.quicData! as Map<String, String>;
+    if (widget.packet.quicData != null) {
+      final quic = widget.packet.quicData!;
       details.addAll([
-        {'label': 'QUIC Version', 'value': quic['version'] ?? 'Unknown'},
-        {'label': 'Connection ID', 'value': '${quic['destinationConnectionId'] ?? 'Unknown'}'},
+        {'label': 'QUIC Version', 'value': quic['version']?.toString() ?? 'Unknown'},
+        {'label': 'Connection ID', 'value': quic['destinationConnectionId']?.toString() ?? 'Unknown'},
       ]);
     }
 
     return details;
+  }
+
+  // Helper methods for payload formatting
+  String _toAsciiView(String payload) {
+    if (payload.isEmpty) return 'Empty payload';
+
+    // Replace non-printable characters with dots
+    final buffer = StringBuffer();
+    for (int i = 0; i < payload.length; i++) {
+      final char = payload[i];
+      final code = char.codeUnitAt(0);
+      if (code >= 32 && code <= 126) {
+        buffer.write(char);
+      } else if (code == 10) {
+        buffer.write('\n');
+      } else if (code == 13) {
+        buffer.write('\r');
+      } else if (code == 9) {
+        buffer.write('\t');
+      } else {
+        buffer.write('.');
+      }
+    }
+    return buffer.toString();
+  }
+
+  String _toHexView(String payload) {
+    if (payload.isEmpty) return 'Empty payload';
+
+    final buffer = StringBuffer();
+    final bytes = payload.codeUnits;
+
+    for (int i = 0; i < bytes.length; i += 16) {
+      // Offset
+      buffer.write('${i.toRadixString(16).padLeft(8, '0')}  ');
+
+      // Hex values
+      for (int j = 0; j < 16; j++) {
+        if (i + j < bytes.length) {
+          buffer.write('${bytes[i + j].toRadixString(16).padLeft(2, '0')} ');
+        } else {
+          buffer.write('   ');
+        }
+        if (j == 7) buffer.write(' ');
+      }
+
+      buffer.write(' |');
+
+      // ASCII representation
+      for (int j = 0; j < 16 && i + j < bytes.length; j++) {
+        final code = bytes[i + j];
+        if (code >= 32 && code <= 126) {
+          buffer.write(String.fromCharCode(code));
+        } else {
+          buffer.write('.');
+        }
+      }
+
+      buffer.write('|\n');
+    }
+
+    return buffer.toString();
+  }
+}
+
+// Helper widget for view toggle buttons
+class _ViewToggleButton extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ViewToggleButton({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: isSelected
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+          ),
+        ),
+      ),
+    );
   }
 }
 
