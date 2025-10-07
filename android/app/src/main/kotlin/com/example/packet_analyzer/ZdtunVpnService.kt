@@ -77,6 +77,14 @@ class ZdtunVpnService : VpnService() {
             zdtunInitialized = true
             isRunning = true
 
+            // Start PacketAnalysisManager for DPI and payload processing
+            try {
+                PacketAnalysisManager.getInstance().startAnalysis()
+                Log.i(TAG, "✅ PacketAnalysisManager started")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to start PacketAnalysisManager: ${e.message}")
+            }
+
             // Start packet processing coroutines
             serviceScope.launch {
                 readFromTun()
@@ -343,16 +351,17 @@ class ZdtunVpnService : VpnService() {
             Log.d(TAG, "🚀 packetSink is: ${if (packetSink == null) "NULL" else "NOT NULL"}")
 
             // Phase 2: Process packet through PacketAnalysisManager
-            try {
+            val enrichedPacket = try {
                 PacketAnalysisManager.getInstance().processPacket(packetInfo, rawPacket)
             } catch (e: Exception) {
                 Log.w(TAG, "PacketAnalysisManager not available: ${e.message}")
+                packetInfo
             }
 
             // EventChannel.EventSink must be called from main thread
             mainHandler.post {
                 try {
-                    packetSink?.success(packetInfo)
+                    packetSink?.success(enrichedPacket)
                     Log.d(TAG, "✅ Packet sent to Flutter UI")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in EventSink: ${e.message}")
@@ -366,6 +375,14 @@ class ZdtunVpnService : VpnService() {
     override fun onDestroy() {
         Log.i(TAG, "Stopping ZdtunVpnService")
         isRunning = false
+
+        // Stop PacketAnalysisManager
+        try {
+            PacketAnalysisManager.getInstance().stopAnalysis()
+            Log.i(TAG, "PacketAnalysisManager stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping PacketAnalysisManager: ${e.message}")
+        }
 
         serviceScope.cancel()
 
