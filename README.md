@@ -280,7 +280,7 @@ flutter install
 - **PCAPdroid** - Inspiration for zdtun integration
 - **zdtun** - Packet tunneling library by @emanuele-f
 - **libpcap** - Packet capture standard
-- **Wireshark** - Protocol reference
+- **Wireshark** - Protocols reference
 - **Kali NetHunter** - Target platform
 
 ---
