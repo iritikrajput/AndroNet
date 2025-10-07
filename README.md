@@ -11,6 +11,9 @@
 <p align="center">
   <strong>A professional-grade mobile network security analysis platform for penetration testers, network administrators, and cybersecurity professionals</strong>
 </p>
+<p align="center">
+  <strong>Team CipherSEC</strong>
+</p>
 
 ---
 
