@@ -8,6 +8,7 @@ import 'auth/auth_service.dart';
 import 'auth/auth_wrapper.dart';
 import 'auth/login_screen.dart';
 import 'auth/setup_auth_screen.dart';
+import 'models.dart';
 import 'enhanced_ui_components.dart';
 
 // ================= CAPTURE MODE ENUM =================
@@ -426,76 +427,6 @@ class NativeBridge {
 }
 
 
-// ================= ENHANCED MODELS =================
-class PacketInfo {
-  final String sourceIp, destinationIp, protocol, timestamp, payload;
-  final int sourcePort, destinationPort, size;
-  final String? direction, flags, appName;
-  final double? anomalyScore;
-  final Map<String, dynamic>? payloadAnalysis;
-  final Map<String, dynamic>? httpData;
-  final Map<String, dynamic>? dnsData;
-  final Map<String, dynamic>? tlsData;
-  final Map<String, dynamic>? quicData;
-
-  const PacketInfo({
-    required this.sourceIp,
-    required this.destinationIp,
-    required this.sourcePort,
-    required this.destinationPort,
-    required this.protocol,
-    required this.size,
-    required this.timestamp,
-    required this.payload,
-    this.direction,
-    this.flags,
-    this.appName,
-    this.anomalyScore,
-    this.payloadAnalysis,
-    this.httpData,
-    this.dnsData,
-    this.tlsData,
-    this.quicData,
-  });
-
-  factory PacketInfo.fromMap(Map<String, dynamic> map) => PacketInfo(
-    sourceIp: map['sourceIp']?.toString() ?? '',
-    destinationIp: map['destinationIp']?.toString() ?? '',
-    sourcePort: int.tryParse(map['sourcePort'].toString()) ?? 0,
-    destinationPort: int.tryParse(map['destinationPort'].toString()) ?? 0,
-    protocol: map['protocol']?.toString() ?? 'UNK',
-    size: int.tryParse(map['size'].toString()) ?? 0,
-    timestamp:
-        map['timestamp']?.toString() ??
-        DateTime.now().millisecondsSinceEpoch.toString(),
-    payload: map['payload']?.toString() ?? '',
-    direction: map['direction']?.toString(),
-    flags: map['flags']?.toString(),
-    appName: map['appName']?.toString(),
-    anomalyScore: map['anomalyScore'] != null ? double.tryParse(map['anomalyScore'].toString()) : null,
-    payloadAnalysis: map['payloadAnalysis'] as Map<String, dynamic>?,
-    httpData: map['httpData'] as Map<String, dynamic>?,
-    dnsData: map['dnsData'] as Map<String, dynamic>?,
-    tlsData: map['tlsData'] as Map<String, dynamic>?,
-    quicData: map['quicData'] as Map<String, dynamic>?,
-  );
-
-  String get formattedTime {
-    try {
-      final time = DateTime.fromMillisecondsSinceEpoch(int.parse(timestamp));
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return timestamp.substring(0, math.min(8, timestamp.length));
-    }
-  }
-
-  bool get isOutgoing =>
-      direction?.toUpperCase() == 'OUT' ||
-      direction?.toUpperCase() == 'OUTGOING';
-  String get displayDirection => isOutgoing ? 'OUT' : 'IN';
-  Color get directionColor =>
-      isOutgoing ? const Color(0xFF2196F3) : const Color(0xFF4CAF50);
-}
 
 class ProtocolStats {
   final String protocol;
@@ -537,24 +468,6 @@ class NetworkMetrics {
   }
 }
 
-// Anomaly Information Model
-class AnomalyInfo {
-  final String id;
-  final String type;
-  final String severity;
-  final String title;
-  final String description;
-  final String timestamp;
-
-  const AnomalyInfo({
-    required this.id,
-    required this.type,
-    required this.severity,
-    required this.title,
-    required this.description,
-    required this.timestamp,
-  });
-}
 
 // ================= ENHANCED PACKET SERVICE WITH VPN CONTROLLER =================
 class PacketService {
@@ -688,12 +601,34 @@ class PacketService {
     _buffer.clear();
     for (final m in batch) {
       try {
+        // Debug: Check if DPI data is in the map
+        if (m.containsKey('httpData') || m.containsKey('dnsData') || m.containsKey('tlsData')) {
+          print("🔍 DPI DATA FOUND in map!");
+          print("🔍 httpData: ${m['httpData']}");
+          print("🔍 dnsData: ${m['dnsData']}");
+          print("🔍 tlsData: ${m['tlsData']}");
+        }
+        // Debug: Check payload data
+        print("📦 Payload in map: '${m['payload']?.toString().substring(0, (m['payload']?.toString().length ?? 0) > 50 ? 50 : (m['payload']?.toString().length ?? 0))}'");
+        print("📦 PayloadHex in map: '${m['payloadHex']?.toString().substring(0, (m['payloadHex']?.toString().length ?? 0) > 50 ? 50 : (m['payloadHex']?.toString().length ?? 0))}'");
+        print("📦 PayloadSize in map: ${m['payloadSize']}");
+
+
         final packet = PacketInfo.fromMap(m);
-        print("✅ Created PacketInfo: ${packet.protocol} ${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}"); // Debug log
+        print("✅ Created PacketInfo: ${packet.protocol} ${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}");
+
+        // Debug: Check if DPI data made it to PacketInfo
+        if (packet.httpData != null || packet.dnsData != null || packet.tlsData != null) {
+          print("🎉 DPI DATA IN PACKET!");
+          print("🎉 httpData: ${packet.httpData}");
+          print("🎉 dnsData: ${packet.dnsData}");
+          print("🎉 tlsData: ${packet.tlsData}");
+        }
+
         _packetController.add(packet);
       } catch (e) {
-        print("❌ Error creating PacketInfo from map: $e"); // Debug log
-        print("❌ Problematic map: $m"); // Debug log
+        print("❌ Error creating PacketInfo from map: $e");
+        print("❌ Problematic map: $m");
       }
     }
   }
@@ -2562,7 +2497,6 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
              (packet.payloadAnalysis!['securityFlags'] as List).isNotEmpty))
         .take(5)
         .map((packet) => AnomalyInfo(
-          id: '${packet.sourceIp}_${packet.timestamp}',
           type: _getAnomalyType(packet),
           severity: _getAnomalySeverity(packet),
           title: _getAnomalyTitle(packet),
@@ -2622,91 +2556,47 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   }
 
   // Helper methods for UI functionality
-  List<PacketInfo> get _filteredPackets {
-    if (_selectedProtocolFilter == "ALL") {
-      return _packets;
+
+  String _getAnomalyType(PacketInfo packet) {
+    if (packet.anomalyScore != null && packet.anomalyScore! > 0.8) {
+      return 'CRITICAL_THREAT';
+    } else if (packet.protocol == 'TCP' && packet.flags?.contains('SYN') == true) {
+      return 'PORT_SCAN';
+    } else if (packet.anomalyScore != null && packet.anomalyScore! > 0.5) {
+      return 'SUSPICIOUS_ACTIVITY';
     }
-    return _packets
-        .where((packet) => packet.protocol.toUpperCase() == _selectedProtocolFilter)
-        .toList();
+    return 'ANOMALY';
   }
 
-  Color _protocolColor(String protocol) {
-    switch (protocol.toUpperCase()) {
-      case 'HTTP': return Colors.blue;
-      case 'HTTPS': return Colors.green;
-      case 'DNS': return Colors.orange;
-      case 'TLS': return Colors.teal;
-      case 'QUIC': return Colors.purple;
-      case 'SIP': return Colors.cyan;
-      case 'RTP': return Colors.indigo;
-      case 'SMB': return Colors.brown;
-      case 'NTP': return Colors.lime;
-      case 'TCP': return Colors.blueGrey;
-      case 'UDP': return Colors.deepOrange;
-      default: return Colors.grey;
+  String _getAnomalyTitle(PacketInfo packet) {
+    final type = _getAnomalyType(packet);
+    switch (type) {
+      case 'CRITICAL_THREAT':
+        return 'Critical Security Threat Detected';
+      case 'PORT_SCAN':
+        return 'Potential Port Scan';
+      case 'SUSPICIOUS_ACTIVITY':
+        return 'Suspicious Network Activity';
+      default:
+        return 'Network Anomaly';
     }
   }
 
-  void _showVpnPermissionDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('VPN Permission Required'),
-        content: const Text(
-          'AndroNet needs VPN permission to capture and analyze network packets. '
-          'Please grant VPN permission in the next dialog.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              // VPN permission request is handled by VpnController.prepareVpn()
-              await VpnController.prepareVpn();
-            },
-            child: const Text('Grant Permission'),
-          ),
-        ],
-      ),
+  Widget _buildEnhancedFAB() {
+    return FloatingActionButton.extended(
+      onPressed: _toggleCapture,
+      icon: Icon(_isCapturing ? Icons.stop : Icons.play_arrow),
+      label: Text(_isCapturing ? 'Stop' : 'Start'),
+      backgroundColor: _isCapturing ? Colors.red : Colors.green,
     );
   }
 
-  void _showSnackBar(String message, Color backgroundColor, IconData icon) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: backgroundColor,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
 
-  Future<void> _toggleCapture() async {
-    if (_isCapturing) {
-      await _stopCapture();
-    } else {
-      await _startCapture();
-    }
-  }
+
+
 
   // ================= DIALOG & UTILITY METHODS =================
 
-  void _showPacketDetails(PacketInfo packet) {
-    showDialog(
-      context: context,
-      builder: (context) => EnhancedPacketDetailsDialog(packet: packet),
-    );
-  }
 
   void _showCaptureModeSelector() {
     showModalBottomSheet(
