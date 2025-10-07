@@ -104,45 +104,30 @@ class PacketAnalysisManager(private val context: Context) {
     /**
      * Process a captured packet through all Phase 2 systems
      */
-    fun processPacket(packetInfo: Map<String, Any>, rawPacket: ByteArray? = null) {
-        if (!isAnalyzing) return
+    fun processPacket(packetInfo: Map<String, Any>, rawPacket: ByteArray? = null): Map<String, Any> {
+        if (!isAnalyzing) {
+            Log.w(TAG, "⚠️ NOT ANALYZING - returning original packet")
+            return packetInfo
+        }
 
         try {
             // 1. Update traffic statistics
             TrafficStatistics.updateStats(packetInfo)
 
             // 2. Deep packet inspection (if payload available)
+
             val enrichedPacket = if (rawPacket != null && rawPacket.isNotEmpty()) {
                 // Extract payload from raw packet
                 val payload = extractPayload(rawPacket, packetInfo)
-                PacketDissector.dissect(packetInfo, payload)
+
+                val result = PacketDissector.dissect(packetInfo, payload)
+                result
             } else {
                 packetInfo
             }
 
-
-            // Check if DPI enriched the packet with new fields
-            if (enrichedPacket.size > packetInfo.size) {
-                val dpiFields = enrichedPacket.keys.filter {
-                    it.startsWith("http_") || it.startsWith("dns_") ||
-                    it.startsWith("tls_") || it.startsWith("dhcp_")
-                }
-                if (dpiFields.isNotEmpty()) {
-                    Log.d(TAG, "🔍 DPI found for ${enrichedPacket["protocol"]}: ${dpiFields.joinToString(", ") { "$it=${enrichedPacket[it]}" }}")
-
-                    // Send enriched packet with DPI data back to Flutter
-                    mainHandler.post {
-                        try {
-                            methodChannel?.invokeMethod("onPacketEnriched", enrichedPacket)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error sending enriched packet: ${e.message}")
-                        }
-                    }
-                }
-            }
             // 3. Anomaly detection
-            val payload = extractPayload(rawPacket, packetInfo)
-            AnomalyDetector.analyzePacket(enrichedPacket, payload)
+            AnomalyDetector.analyzePacket(enrichedPacket)
 
             // 4. PCAP export (if active)
             if (isPcapExporting && rawPacket != null) {
@@ -155,8 +140,12 @@ class PacketAnalysisManager(private val context: Context) {
             packetsLastSecond++
             bytesLastSecond += size
 
+            return enrichedPacket
+
+
         } catch (e: Exception) {
             Log.e(TAG, "Error processing packet: ${e.message}")
+            return packetInfo
         }
     }
 
