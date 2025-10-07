@@ -126,8 +126,37 @@ class PacketAnalysisManager(private val context: Context) {
                 packetInfo
             }
 
+            // 2.5. Add domain name information
+            val finalPacket = enrichedPacket.toMutableMap()
+            // Try both field name variants
+            val destIp = (enrichedPacket["destinationAddress"] ?: enrichedPacket["destinationIp"]) as? String
+            val sourceIp = (enrichedPacket["sourceAddress"] ?: enrichedPacket["sourceIp"]) as? String
+
+            Log.d(TAG, "🔍 Looking up domain for destIp=$destIp, sourceIp=$sourceIp")
+
+            // Check if destination IP has a known domain
+            if (destIp != null) {
+                val domain = DomainTracker.getDomainForIp(destIp)
+                if (domain != null) {
+                    finalPacket["domain"] = domain
+                    finalPacket["domainFriendly"] = DomainTracker.getFriendlyName(domain)
+                    Log.d(TAG, "✅ Domain found for $destIp: $domain (${finalPacket["domainFriendly"]})")
+                } else {
+                    Log.d(TAG, "❌ No domain found for $destIp")
+                }
+            }
+
+            // Check if source IP has a known domain (for incoming traffic)
+            if (sourceIp != null) {
+                val sourceDomain = DomainTracker.getDomainForIp(sourceIp)
+                if (sourceDomain != null) {
+                    finalPacket["sourceDomain"] = sourceDomain
+                    Log.d(TAG, "✅ Source domain found for $sourceIp: $sourceDomain")
+                }
+            }
+
             // 3. Anomaly detection
-            AnomalyDetector.analyzePacket(enrichedPacket)
+            AnomalyDetector.analyzePacket(finalPacket)
 
             // 4. PCAP export (if active)
             if (isPcapExporting && rawPacket != null) {
@@ -140,7 +169,7 @@ class PacketAnalysisManager(private val context: Context) {
             packetsLastSecond++
             bytesLastSecond += size
 
-            return enrichedPacket
+            return finalPacket
 
 
         } catch (e: Exception) {
@@ -338,32 +367,67 @@ class PacketAnalysisManager(private val context: Context) {
         try {
             if (packet.size < 20) return null
 
-            // Get IP header length
-            val ihl = (packet[0].toInt() and 0x0F) * 4
+            // Detect IP version
+            val version = (packet[0].toInt() and 0xF0) shr 4
+
+            val ipHeaderLen = when (version) {
+                4 -> {
+                    // IPv4: Get IHL (Internet Header Length)
+                    (packet[0].toInt() and 0x0F) * 4
+                }
+                6 -> {
+                    // IPv6: Fixed header is always 40 bytes
+                    40
+                }
+                else -> {
+                    Log.w(TAG, "Unknown IP version: $version")
+                    return null
+                }
+            }
 
             val protocol = packetInfo["protocol"] as? String ?: return null
 
-            val payloadStart = when (protocol) {
+            // Get the underlying transport protocol
+            val transportProtocol = when (protocol) {
+                "HTTP", "HTTPS", "FTP", "SSH", "Telnet", "SMTP", "POP3", "IMAP", "IMAPS", "POP3S", "HTTP-Alt" -> "TCP"
+                "DNS", "DHCP", "NTP", "SNMP", "SNMP-Trap", "QUIC/HTTP3", "DNS-over-TLS", "mDNS" -> "UDP"
+                else -> {
+                    // Handle IPv6 protocol names like "IPv6-TCP", "IPv6-UDP"
+                    when {
+                        protocol.contains("TCP", ignoreCase = true) -> "TCP"
+                        protocol.contains("UDP", ignoreCase = true) -> "UDP"
+                        protocol.contains("ICMP", ignoreCase = true) -> "ICMP"
+                        else -> protocol
+                    }
+                }
+            }
+
+            val payloadStart = when (transportProtocol) {
                 "TCP" -> {
                     // TCP header is at least 20 bytes
-                    if (packet.size < ihl + 20) return null
-                    val tcpHeaderLen = ((packet[ihl + 12].toInt() and 0xFF) shr 4) * 4
-                    ihl + tcpHeaderLen
+                    if (packet.size < ipHeaderLen + 20) return null
+                    val tcpHeaderLen = ((packet[ipHeaderLen + 12].toInt() and 0xFF) shr 4) * 4
+                    ipHeaderLen + tcpHeaderLen
                 }
                 "UDP" -> {
                     // UDP header is 8 bytes
-                    ihl + 8
+                    ipHeaderLen + 8
                 }
-                "ICMP" -> {
+                "ICMP", "ICMPv6" -> {
                     // ICMP header is at least 8 bytes
-                    ihl + 8
+                    ipHeaderLen + 8
                 }
                 else -> return null
             }
 
-            if (payloadStart >= packet.size) return null
+            if (payloadStart >= packet.size) {
+                Log.d(TAG, "⚠️ No payload: payloadStart=$payloadStart >= packetSize=${packet.size}, protocol=$protocol, transportProtocol=$transportProtocol")
+                return null
+            }
 
-            return packet.copyOfRange(payloadStart, packet.size)
+            val extractedPayload = packet.copyOfRange(payloadStart, packet.size)
+            Log.d(TAG, "✅ Payload extracted: size=${extractedPayload.size} bytes, protocol=$protocol, transportProtocol=$transportProtocol")
+            return extractedPayload
 
         } catch (e: Exception) {
             Log.e(TAG, "Error extracting payload: ${e.message}")

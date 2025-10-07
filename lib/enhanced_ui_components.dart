@@ -198,6 +198,41 @@ class EnhancedPacketCard extends StatelessWidget {
 
               const SizedBox(height: 12),
 
+              // Domain Name (if available)
+              if (packet.domainFriendly != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.language,
+                        size: 16,
+                        color: Colors.cyan.shade300,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          packet.domainFriendly!,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.cyan.shade300,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (packet.domain != null)
+                        Text(
+                          ' (${packet.domain})',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
               // Connection Info
               Text(
                 '${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}',
@@ -451,6 +486,7 @@ class EnhancedPacketDetailsDialog extends StatefulWidget {
 
 class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialog> {
   bool _showHexView = false;
+  bool _showHttpFormatted = false;
 
   @override
   Widget build(BuildContext context) {
@@ -622,6 +658,14 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
     return _buildDetailSection(context,
       '🌐 Network Information',
       [
+        if (widget.packet.domainFriendly != null)
+          _buildDetailRow(
+            'Domain',
+            widget.packet.domainFriendly!,
+            valueColor: Colors.cyan.shade300,
+          ),
+        if (widget.packet.domain != null && widget.packet.domain != widget.packet.domainFriendly)
+          _buildDetailRow('Full Domain', widget.packet.domain!),
         _buildDetailRow('Source', '${widget.packet.sourceIp}:${widget.packet.sourcePort}'),
         _buildDetailRow('Destination', '${widget.packet.destinationIp}:${widget.packet.destinationPort}'),
         _buildDetailRow('Protocol', '${widget.packet.protocol} (${widget.packet.appName ?? 'Unknown'})'),
@@ -673,15 +717,31 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_isHttpPayload()) ...[
+                    _ViewToggleButton(
+                      label: 'HTTP',
+                      isSelected: _showHttpFormatted,
+                      onTap: () => setState(() {
+                        _showHttpFormatted = true;
+                        _showHexView = false;
+                      }),
+                    ),
+                  ],
                   _ViewToggleButton(
                     label: 'ASCII',
-                    isSelected: !_showHexView,
-                    onTap: () => setState(() => _showHexView = false),
+                    isSelected: !_showHexView && !_showHttpFormatted,
+                    onTap: () => setState(() {
+                      _showHexView = false;
+                      _showHttpFormatted = false;
+                    }),
                   ),
                   _ViewToggleButton(
                     label: 'HEX',
                     isSelected: _showHexView,
-                    onTap: () => setState(() => _showHexView = true),
+                    onTap: () => setState(() {
+                      _showHexView = true;
+                      _showHttpFormatted = false;
+                    }),
                   ),
                 ],
               ),
@@ -721,15 +781,17 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
                 ),
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(12),
-                  child: SelectableText(
-                    _showHexView ? _toHexView(widget.packet.payload) : _toAsciiView(widget.packet.payload),
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: Colors.greenAccent,
-                      height: 1.5,
-                    ),
-                  ),
+                  child: _showHttpFormatted
+                      ? _buildHttpFormattedView()
+                      : SelectableText(
+                          _showHexView ? _toHexView(widget.packet.payload) : _toAsciiView(widget.packet.payload),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: Colors.greenAccent,
+                            height: 1.5,
+                          ),
+                        ),
                 ),
               ),
             ],
@@ -1139,6 +1201,113 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
     }
 
     return buffer.toString();
+  }
+
+  bool _isHttpPayload() {
+    final payload = widget.packet.payload.trim();
+    return payload.startsWith('HTTP/') ||
+           payload.startsWith('GET ') ||
+           payload.startsWith('POST ') ||
+           payload.startsWith('PUT ') ||
+           payload.startsWith('DELETE ') ||
+           payload.startsWith('HEAD ') ||
+           payload.startsWith('OPTIONS ') ||
+           payload.startsWith('PATCH ');
+  }
+
+  Widget _buildHttpFormattedView() {
+    final payload = widget.packet.payload;
+    final lines = payload.split('\n');
+
+    // Find where headers end and body begins (empty line)
+    int bodyStartIndex = lines.indexWhere((line) => line.trim().isEmpty);
+    if (bodyStartIndex == -1) bodyStartIndex = lines.length;
+
+    final headerLines = lines.sublist(0, bodyStartIndex);
+    final bodyLines = bodyStartIndex < lines.length - 1 ? lines.sublist(bodyStartIndex + 1) : <String>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Request/Response line (first line)
+        if (headerLines.isNotEmpty)
+          SelectableText(
+            headerLines[0],
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: Colors.cyanAccent,
+              fontWeight: FontWeight.bold,
+              height: 1.5,
+            ),
+          ),
+        const SizedBox(height: 8),
+
+        // Headers
+        ...headerLines.skip(1).map((line) {
+          if (line.trim().isEmpty) return const SizedBox();
+
+          // Parse header name and value
+          final colonIndex = line.indexOf(':');
+          if (colonIndex > 0) {
+            final headerName = line.substring(0, colonIndex);
+            final headerValue = line.substring(colonIndex + 1).trim();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: SelectableText.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$headerName: ',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: Colors.lightBlueAccent,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextSpan(
+                      text: headerValue,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return SelectableText(
+            line,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: Colors.greenAccent,
+              height: 1.5,
+            ),
+          );
+        }).toList(),
+
+        // Body separator
+        if (bodyLines.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Divider(color: Colors.grey, thickness: 1),
+          const SizedBox(height: 8),
+          SelectableText(
+            bodyLines.join('\n'),
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: Colors.greenAccent,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 

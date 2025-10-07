@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:fl_chart/fl_chart.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_wrapper.dart';
 import 'auth/login_screen.dart';
@@ -138,6 +139,18 @@ void initPacketListener() {
             Map<String, dynamic>.from(call.arguments),
           );
         }
+        break;
+      case "onDashboardUpdate":
+        print("📊 Dashboard update received"); // Debug log
+        if (call.arguments is Map) {
+          PacketService._handleDashboardUpdate(
+            Map<String, dynamic>.from(call.arguments),
+          );
+        }
+        break;
+      case "onAnomalyDetected":
+        print("🚨 Anomaly detected"); // Debug log
+        // Handle anomaly notifications
         break;
     }
   });
@@ -594,6 +607,46 @@ class PacketService {
     }
   }
 
+  static void _handleDashboardUpdate(Map<String, dynamic> dashboardData) {
+    try {
+      // Extract protocol distribution from dashboard data
+      final protocolDistribution = dashboardData['protocolDistribution'] as Map<dynamic, dynamic>?;
+
+      if (protocolDistribution != null && protocolDistribution.isNotEmpty) {
+        // Calculate total packets for percentage
+        final totalPackets = protocolDistribution.values.fold<int>(
+          0,
+          (sum, count) => sum + ((count as num).toInt())
+        );
+
+        // Convert to ProtocolStats list
+        final protocolStats = protocolDistribution.entries.map((entry) {
+          final protocol = entry.key.toString();
+          final count = (entry.value as num).toInt();
+          final percentage = totalPackets > 0 ? (count * 100.0 / totalPackets) : 0.0;
+
+          return ProtocolStats(
+            protocol: protocol,
+            packetCount: count,
+            percentage: percentage,
+          );
+        }).toList();
+
+        // Sort by packet count descending
+        protocolStats.sort((a, b) => b.packetCount.compareTo(a.packetCount));
+
+        _statsController.add(protocolStats);
+        debugPrint("📊 Updated protocol stats: ${protocolStats.length} protocols");
+      }
+
+      // You can also extract and handle other dashboard data here
+      // like bandwidth time series, top talkers, etc.
+
+    } catch (e) {
+      debugPrint("Error processing dashboard update: $e");
+    }
+  }
+
   static void _flush() {
     if (_buffer.isEmpty) return;
     final batch = List<Map<String, dynamic>>.from(_buffer);
@@ -930,13 +983,15 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   void _setupStreamSubscriptions() {
     _packetSub = PacketService.packetStream.listen((packet) {
       _debounceTimer?.cancel();
-      _debounceTimer = Timer(const Duration(milliseconds: 100), () {
+      _debounceTimer = Timer(const Duration(milliseconds: 50), () {
         if (mounted) {
           setState(() {
             _packets.insert(0, packet);
             if (_packets.length > _maxPackets) {
               _packets.removeRange(_maxPackets ~/ 2, _packets.length);
             }
+            // Calculate real-time protocol stats
+            _updateProtocolStatsRealtime();
           });
 
           if (_isCapturing) {
@@ -954,9 +1009,43 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       if (mounted) setState(() => _metrics = metrics);
     });
 
-    _statsSub = PacketService.statsStream.listen((stats) {
-      if (mounted) setState(() => _protocolStats = stats);
-    });
+    // Don't listen to statsStream - we calculate in real-time instead
+    // _statsSub = PacketService.statsStream.listen((stats) {
+    //   if (mounted) setState(() => _protocolStats = stats);
+    // });
+  }
+
+  // ================= REAL-TIME PROTOCOL STATS =================
+  void _updateProtocolStatsRealtime() {
+    if (_packets.isEmpty) {
+      _protocolStats = [];
+      return;
+    }
+
+    // Count packets by protocol
+    final Map<String, int> protocolCounts = {};
+    for (final packet in _packets) {
+      final protocol = packet.appName ?? packet.protocol;
+      protocolCounts[protocol] = (protocolCounts[protocol] ?? 0) + 1;
+    }
+
+    // Calculate total packets
+    final totalPackets = _packets.length;
+
+    // Convert to ProtocolStats list with percentages
+    _protocolStats = protocolCounts.entries.map((entry) {
+      final count = entry.value;
+      final percentage = (count * 100.0 / totalPackets);
+
+      return ProtocolStats(
+        protocol: entry.key,
+        packetCount: count,
+        percentage: percentage,
+      );
+    }).toList();
+
+    // Sort by packet count descending
+    _protocolStats.sort((a, b) => b.packetCount.compareTo(a.packetCount));
   }
 
   // ================= ENHANCED NATIVE BRIDGE INITIALIZATION =================
@@ -1061,6 +1150,13 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   Future<void> _stopCapture() async {
     try {
+      // Show stopping message
+      _showSnackBar(
+        "⏹️ Stopping capture...",
+        Colors.orange,
+        Icons.hourglass_empty,
+      );
+
       switch (_selectedCaptureMode) {
         case CaptureMode.vpn:
           await VpnController.stopVpn();
@@ -1073,13 +1169,17 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
           break;
       }
 
+      // Give service time to clean up
+      await Future.delayed(const Duration(milliseconds: 500));
+
       setState(() => _isCapturing = false);
       _showSnackBar(
-        "⏹️ Capture stopped",
-        Colors.orange,
-        Icons.stop_circle,
+        "✅ Capture stopped successfully",
+        Colors.green,
+        Icons.check_circle,
       );
     } catch (e) {
+      setState(() => _isCapturing = false);
       _showSnackBar("Error stopping capture: ${e.toString()}", Colors.red, Icons.error);
     }
   }
@@ -1718,24 +1818,28 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _startCapture,
+                    onPressed: _isCapturing ? null : _startCapture,
                     icon: const Icon(Icons.play_arrow),
                     label: Text(_selectedCaptureMode == CaptureMode.vpn ? "Start VPN" : "Start LibPCAP"),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
+                      backgroundColor: _isCapturing ? Colors.grey : Colors.green,
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey.shade300,
+                      disabledForegroundColor: Colors.grey.shade600,
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _stopCapture,
+                    onPressed: !_isCapturing ? null : _stopCapture,
                     icon: const Icon(Icons.stop),
                     label: Text(_selectedCaptureMode == CaptureMode.vpn ? "Stop VPN" : "Stop LibPCAP"),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
+                      backgroundColor: !_isCapturing ? Colors.grey : Colors.red,
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey.shade300,
+                      disabledForegroundColor: Colors.grey.shade600,
                     ),
                   ),
                 ),
@@ -2090,11 +2194,54 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // Real-time stats summary
+          if (_packets.isNotEmpty) ...[
+            Card(
+              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildQuickStat('Total', _packets.length.toString(), Icons.filter_list),
+                    _buildQuickStat('Protocols', _protocolStats.length.toString(), Icons.category),
+                    _buildQuickStat('Incoming', _packets.where((p) => !p.isOutgoing).length.toString(), Icons.arrow_downward),
+                    _buildQuickStat('Outgoing', _packets.where((p) => p.isOutgoing).length.toString(), Icons.arrow_upward),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           _buildProtocolDistributionCard(),
           const SizedBox(height: 16),
           _buildTrafficAnalyticsCard(),
         ],
       ),
+    );
+  }
+
+  Widget _buildQuickStat(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
     );
   }
 
@@ -2121,6 +2268,40 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                     color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
+                const Spacer(),
+                // Live update indicator
+                if (_isCapturing && _packets.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'LIVE',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -2131,10 +2312,48 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   child: Text('No protocol data available'),
                 ),
               )
-            else
+            else ...[
+              // Pie chart visualization with animation
+              SizedBox(
+                height: 200,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: PieChart(
+                    key: ValueKey(_protocolStats.length),
+                    PieChartData(
+                      sections: _protocolStats.take(5).map((stat) {
+                        final color = _protocolColor(stat.protocol);
+
+                        return PieChartSectionData(
+                          color: color,
+                          value: stat.percentage,
+                          title: '${stat.percentage.toStringAsFixed(1)}%',
+                          radius: 50,
+                          titleStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          titlePositionPercentageOffset: 0.6,
+                        );
+                      }).toList(),
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 40,
+                      pieTouchData: PieTouchData(
+                        touchCallback: (FlTouchEvent event, pieTouchResponse) {
+                          // Add touch feedback if desired
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Protocol list
               ..._protocolStats
                   .take(5)
                   .map((stat) => _buildProtocolStatRow(stat)),
+            ],
           ],
         ),
       ),

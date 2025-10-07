@@ -19,20 +19,28 @@ object PacketDissector {
         val destPort = (packetInfo["destinationPort"] as? Int) ?: 0
         val sourcePort = (packetInfo["sourcePort"] as? Int) ?: 0
 
+        // Debug logging for HTTP/HTTPS
+        if (protocol == "HTTP" || protocol == "HTTPS" || destPort == 80 || sourcePort == 80 || destPort == 443 || sourcePort == 443) {
+            Log.d(TAG, "🔍 HTTP/HTTPS packet: protocol=$protocol, destPort=$destPort, sourcePort=$sourcePort, payloadSize=${payload?.size ?: 0}")
+        }
 
         if (payload == null || payload.isEmpty()) {
+            if (protocol == "HTTP" || protocol == "HTTPS" || destPort == 80 || sourcePort == 80 || destPort == 443 || sourcePort == 443) {
+                Log.w(TAG, "⚠️ HTTP/HTTPS packet has NO payload! protocol=$protocol")
+            }
             return packetInfo
         }
 
         val enrichedInfo = packetInfo.toMutableMap()
 
         // Add payload content (both hex and ASCII)
+        // Increase limits to capture more data
         val payloadHex = payload.joinToString(" ") { byte ->
             "%02x".format(byte)
-        }.take(500) // Limit to first 500 chars for performance
+        }.take(2000) // Increased from 500 to 2000 chars
 
         val payloadAscii = buildString {
-            for (byte in payload.take(250)) { // Limit to 250 bytes
+            for (byte in payload.take(1000)) { // Increased from 250 to 1000 bytes
                 val char = byte.toInt() and 0xFF
                 append(if (char in 32..126) char.toChar() else '.')
             }
@@ -41,6 +49,9 @@ object PacketDissector {
         enrichedInfo["payload"] = payloadAscii
         enrichedInfo["payloadHex"] = payloadHex
         enrichedInfo["payloadSize"] = payload.size
+
+        // Log payload info for debugging
+        Log.d(TAG, "📦 Payload extracted: protocol=$protocol, size=${payload.size} bytes, destPort=$destPort, sourcePort=$sourcePort")
 
 
         try {
@@ -60,6 +71,17 @@ object PacketDissector {
                     val tlsData = parseTls(payload)
                     if (tlsData.isNotEmpty()) {
                         enrichedInfo["tlsData"] = tlsData
+
+                        // If SNI was extracted, record it in DomainTracker
+                        val sni = tlsData["sni"]
+                        if (sni != null && destPort == 443) {
+                            // For outgoing HTTPS, map the destination IP to the SNI
+                            val destIp = packetInfo["destinationIp"] as? String ?: packetInfo["destinationAddress"] as? String
+                            if (destIp != null) {
+                                DomainTracker.recordDnsResolution(sni, destIp)
+                                Log.d(TAG, "🔐 SNI->IP mapping recorded: $sni -> $destIp")
+                            }
+                        }
                     }
                 }
 
@@ -249,6 +271,15 @@ object PacketDissector {
                     20 -> "Finished"
                     else -> "Unknown($handshakeType)"
                 }
+
+                // Extract SNI (Server Name Indication) from ClientHello
+                if (handshakeType == 1) {
+                    val sni = extractSNI(payload)
+                    if (sni != null) {
+                        result["sni"] = sni
+                        Log.d(TAG, "🌐 SNI extracted from TLS: $sni")
+                    }
+                }
             }
 
             result["summary"] = "${result["version"]} ${result["contentType"]}"
@@ -312,16 +343,18 @@ object PacketDissector {
             result["additionalRRs"] = arCount.toString()
 
             // Parse query name
+            var queryName = ""
+            var queryType = 0
             if (qdCount > 0) {
                 try {
-                    val queryName = parseDnsName(buffer)
+                    queryName = parseDnsName(buffer)
                     result["queryName"] = queryName
 
                     if (buffer.remaining() >= 4) {
-                        val qType = buffer.getShort().toInt() and 0xFFFF
+                        queryType = buffer.getShort().toInt() and 0xFFFF
                         val qClass = buffer.getShort().toInt() and 0xFFFF
 
-                        result["queryType"] = when (qType) {
+                        result["queryType"] = when (queryType) {
                             1 -> "A (IPv4)"
                             2 -> "NS"
                             5 -> "CNAME"
@@ -331,13 +364,32 @@ object PacketDissector {
                             16 -> "TXT"
                             28 -> "AAAA (IPv6)"
                             33 -> "SRV"
-                            else -> "Type $qType"
+                            else -> "Type $queryType"
                         }
 
                         result["queryClass"] = if (qClass == 1) "IN (Internet)" else "Class $qClass"
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not parse DNS query name")
+                }
+            }
+
+            // Parse answers (if it's a response with answers)
+            if (qr == 1 && anCount > 0 && queryName.isNotEmpty()) {
+                try {
+                    val resolvedIps = parseDnsAnswers(buffer, anCount, queryType)
+                    if (resolvedIps.isNotEmpty()) {
+                        result["resolvedIps"] = resolvedIps.joinToString(", ")
+
+                        // Record DNS resolutions in DomainTracker
+                        resolvedIps.forEach { ip ->
+                            DomainTracker.recordDnsResolution(queryName, ip)
+                        }
+
+                        Log.d(TAG, "🌐 DNS Resolution: $queryName -> ${resolvedIps.joinToString(", ")}")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not parse DNS answers: ${e.message}")
                 }
             }
 
@@ -380,6 +432,85 @@ object PacketDissector {
         }
 
         return if (parts.isEmpty()) "." else parts.joinToString(".")
+    }
+
+    /**
+     * Parse DNS answers to extract resolved IP addresses
+     */
+    private fun parseDnsAnswers(buffer: ByteBuffer, answerCount: Int, queryType: Int): List<String> {
+        val resolvedIps = mutableListOf<String>()
+
+        try {
+            repeat(answerCount) {
+                if (buffer.remaining() < 10) return@repeat
+
+                // Parse answer name (usually a pointer)
+                val firstByte = buffer.get().toInt() and 0xFF
+                if ((firstByte and 0xC0) == 0xC0) {
+                    // Compression pointer - skip second byte
+                    buffer.get()
+                } else {
+                    // Not a pointer, skip the name
+                    buffer.position(buffer.position() - 1)
+                    parseDnsName(buffer)
+                }
+
+                if (buffer.remaining() < 10) return@repeat
+
+                // Parse answer fields
+                val answerType = buffer.getShort().toInt() and 0xFFFF
+                val answerClass = buffer.getShort().toInt() and 0xFFFF
+                val ttl = buffer.getInt()
+                val rdLength = buffer.getShort().toInt() and 0xFFFF
+
+                if (buffer.remaining() < rdLength) return@repeat
+
+                // Extract IP address for A or AAAA records
+                when (answerType) {
+                    1 -> { // A record (IPv4)
+                        if (rdLength == 4) {
+                            val ip = readIpAddress(buffer)
+                            resolvedIps.add(ip)
+                        } else {
+                            buffer.position(buffer.position() + rdLength)
+                        }
+                    }
+                    28 -> { // AAAA record (IPv6)
+                        if (rdLength == 16) {
+                            val ipv6 = readIpv6Address(buffer)
+                            resolvedIps.add(ipv6)
+                        } else {
+                            buffer.position(buffer.position() + rdLength)
+                        }
+                    }
+                    5 -> { // CNAME record - skip for now
+                        buffer.position(buffer.position() + rdLength)
+                    }
+                    else -> {
+                        // Skip other record types
+                        buffer.position(buffer.position() + rdLength)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing DNS answers: ${e.message}")
+        }
+
+        return resolvedIps
+    }
+
+    /**
+     * Read IPv6 address from buffer
+     */
+    private fun readIpv6Address(buffer: ByteBuffer): String {
+        val bytes = ByteArray(16)
+        buffer.get(bytes)
+        val parts = mutableListOf<String>()
+        for (i in 0 until 16 step 2) {
+            val value = ((bytes[i].toInt() and 0xFF) shl 8) or (bytes[i + 1].toInt() and 0xFF)
+            parts.add(value.toString(16))
+        }
+        return parts.joinToString(":")
     }
 
     /**
@@ -845,6 +976,92 @@ object PacketDissector {
         } catch (e: Exception) {
             Log.e(TAG, "NTP parse error: ${e.message}")
             return emptyMap()
+        }
+    }
+
+    /**
+     * Extract SNI (Server Name Indication) from TLS ClientHello
+     */
+    private fun extractSNI(payload: ByteArray): String? {
+        try {
+            // TLS Record: 1 byte type + 2 bytes version + 2 bytes length = 5 bytes
+            // Handshake: 1 byte type + 3 bytes length = 4 bytes
+            // ClientHello structure starts at offset 9
+
+            if (payload.size < 43) return null
+
+            var offset = 5 // Skip TLS record header
+
+            // Skip handshake type (1 byte) and length (3 bytes)
+            offset += 4
+
+            // Skip client version (2 bytes)
+            offset += 2
+
+            // Skip client random (32 bytes)
+            offset += 32
+
+            // Session ID length (1 byte)
+            if (offset >= payload.size) return null
+            val sessionIdLength = payload[offset].toInt() and 0xFF
+            offset += 1 + sessionIdLength
+
+            // Cipher suites length (2 bytes)
+            if (offset + 1 >= payload.size) return null
+            val cipherSuitesLength = ((payload[offset].toInt() and 0xFF) shl 8) or (payload[offset + 1].toInt() and 0xFF)
+            offset += 2 + cipherSuitesLength
+
+            // Compression methods length (1 byte)
+            if (offset >= payload.size) return null
+            val compressionMethodsLength = payload[offset].toInt() and 0xFF
+            offset += 1 + compressionMethodsLength
+
+            // Extensions length (2 bytes)
+            if (offset + 1 >= payload.size) return null
+            val extensionsLength = ((payload[offset].toInt() and 0xFF) shl 8) or (payload[offset + 1].toInt() and 0xFF)
+            offset += 2
+
+            val extensionsEnd = offset + extensionsLength
+
+            // Parse extensions
+            while (offset + 3 < extensionsEnd && offset + 3 < payload.size) {
+                val extensionType = ((payload[offset].toInt() and 0xFF) shl 8) or (payload[offset + 1].toInt() and 0xFF)
+                val extensionLength = ((payload[offset + 2].toInt() and 0xFF) shl 8) or (payload[offset + 3].toInt() and 0xFF)
+                offset += 4
+
+                // Extension type 0 is server_name
+                if (extensionType == 0 && offset + extensionLength <= payload.size) {
+                    // Server Name List length (2 bytes)
+                    val listLength = ((payload[offset].toInt() and 0xFF) shl 8) or (payload[offset + 1].toInt() and 0xFF)
+                    offset += 2
+
+                    if (offset < payload.size) {
+                        // Server Name Type (1 byte, should be 0 for hostname)
+                        val nameType = payload[offset].toInt() and 0xFF
+                        offset += 1
+
+                        if (nameType == 0 && offset + 1 < payload.size) {
+                            // Server Name length (2 bytes)
+                            val nameLength = ((payload[offset].toInt() and 0xFF) shl 8) or (payload[offset + 1].toInt() and 0xFF)
+                            offset += 2
+
+                            if (offset + nameLength <= payload.size) {
+                                // Server Name (hostname)
+                                val nameBytes = payload.copyOfRange(offset, offset + nameLength)
+                                return String(nameBytes, Charsets.UTF_8)
+                            }
+                        }
+                    }
+                } else {
+                    offset += extensionLength
+                }
+            }
+
+            return null
+
+        } catch (e: Exception) {
+            Log.w(TAG, "Error extracting SNI: ${e.message}")
+            return null
         }
     }
 }

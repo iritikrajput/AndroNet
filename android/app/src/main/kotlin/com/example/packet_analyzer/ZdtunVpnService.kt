@@ -37,25 +37,56 @@ class ZdtunVpnService : VpnService() {
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "Starting ZdtunVpnService")
+        val action = intent?.action
+        Log.i(TAG, "ZdtunVpnService onStartCommand: action=$action")
 
-        if (!isRunning) {
-            startVpnService()
+        when (action) {
+            "STOP_VPN" -> {
+                Log.i(TAG, "Received STOP_VPN command")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            else -> {
+                if (!isRunning) {
+                    Log.i(TAG, "Starting VPN service")
+                    startVpnService()
+                } else {
+                    Log.i(TAG, "VPN already running")
+                }
+                return START_STICKY
+            }
         }
-
-        return START_STICKY
     }
 
     private fun startVpnService() {
         try {
             // Establish VPN
             val builder = Builder()
+                // IPv4 configuration
                 .addAddress("10.0.0.2", 24)
                 .addRoute("0.0.0.0", 0)
+
+                // IPv6 configuration - capture IPv6 traffic too
+                .addAddress("fd00::2", 64)
+                .addRoute("::", 0)
+
+                // DNS servers (both IPv4 and IPv6)
                 .addDnsServer("8.8.8.8")
                 .addDnsServer("8.8.4.4")
+                .addDnsServer("2001:4860:4860::8888")  // Google DNS IPv6
+                .addDnsServer("2001:4860:4860::8844")  // Google DNS IPv6
+
                 .setSession("Andronet VPN")
+                .setMtu(1500)  // Standard MTU
                 .setBlocking(false)
+
+            // Exclude this app from VPN to prevent capturing own traffic
+            try {
+                builder.addDisallowedApplication(packageName)
+                Log.i(TAG, "✅ Excluded own app from VPN to prevent loops")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not exclude own app: ${e.message}")
+            }
 
             vpnInterface = builder.establish()
             if (vpnInterface == null) {
@@ -123,6 +154,30 @@ class ZdtunVpnService : VpnService() {
                     // Parse packet for logging/capturing
                     val packetInfo = parsePacket(packet, isOutgoing = true)
                     if (packetInfo != null) {
+                        val protocol = packetInfo["protocol"]
+                        val sourcePort = packetInfo["sourcePort"]
+                        val destPort = packetInfo["destinationPort"]
+
+                        // Enhanced logging for email and ICMP protocols
+                        when (protocol) {
+                            "SMTP", "IMAP", "IMAPS", "POP3", "POP3S", "ICMP" -> {
+                                Log.i(TAG, "🔍 EMAIL/ICMP PACKET: $protocol " +
+                                        "${packetInfo["sourceIp"]}:$sourcePort → " +
+                                        "${packetInfo["destinationIp"]}:$destPort")
+                            }
+                            "TCP" -> {
+                                // Check if TCP is on email ports
+                                when {
+                                    destPort == 25 || sourcePort == 25 -> Log.i(TAG, "📧 SMTP (port 25) detected")
+                                    destPort == 587 || sourcePort == 587 -> Log.i(TAG, "📧 SMTP (port 587) detected")
+                                    destPort == 143 || sourcePort == 143 -> Log.i(TAG, "📧 IMAP (port 143) detected")
+                                    destPort == 993 || sourcePort == 993 -> Log.i(TAG, "📧 IMAPS (port 993) detected")
+                                    destPort == 110 || sourcePort == 110 -> Log.i(TAG, "📧 POP3 (port 110) detected")
+                                    destPort == 995 || sourcePort == 995 -> Log.i(TAG, "📧 POP3S (port 995) detected")
+                                }
+                            }
+                        }
+
                         Log.d(TAG, "📤 TUN→zdtun: ${packetInfo["protocol"]} " +
                                 "${packetInfo["sourceIp"]}:${packetInfo["sourcePort"]} → " +
                                 "${packetInfo["destinationIp"]}:${packetInfo["destinationPort"]}")
@@ -186,6 +241,19 @@ class ZdtunVpnService : VpnService() {
             // Parse for logging and display
             val packetInfo = parsePacket(packet, isOutgoing = false)
             if (packetInfo != null) {
+                val protocol = packetInfo["protocol"]
+                val sourcePort = packetInfo["sourcePort"]
+                val destPort = packetInfo["destinationPort"]
+
+                // Enhanced logging for email and ICMP protocols
+                when (protocol) {
+                    "SMTP", "IMAP", "IMAPS", "POP3", "POP3S", "ICMP" -> {
+                        Log.i(TAG, "🔍 EMAIL/ICMP PACKET (incoming): $protocol " +
+                                "${packetInfo["sourceIp"]}:$sourcePort → " +
+                                "${packetInfo["destinationIp"]}:$destPort")
+                    }
+                }
+
                 Log.d(TAG, "📥 zdtun→TUN: ${packetInfo["protocol"]} " +
                         "${packetInfo["sourceIp"]}:${packetInfo["sourcePort"]} → " +
                         "${packetInfo["destinationIp"]}:${packetInfo["destinationPort"]}")
@@ -352,7 +420,16 @@ class ZdtunVpnService : VpnService() {
 
             // Phase 2: Process packet through PacketAnalysisManager
             val enrichedPacket = try {
-                PacketAnalysisManager.getInstance().processPacket(packetInfo, rawPacket)
+                val result = PacketAnalysisManager.getInstance().processPacket(packetInfo, rawPacket)
+
+                // Debug: Check if domain fields were added
+                if (result.containsKey("domain")) {
+                    Log.d(TAG, "✅ Domain added: ${result["domain"]} (${result["domainFriendly"]})")
+                } else {
+                    Log.d(TAG, "⚠️ No domain for ${result["destinationAddress"]}")
+                }
+
+                result
             } catch (e: Exception) {
                 Log.w(TAG, "PacketAnalysisManager not available: ${e.message}")
                 packetInfo

@@ -42,6 +42,9 @@ dependencies:
   crypto: ^3.0.3
   provider: ^6.1.2
 
+  # Charts for analytics
+  fl_chart: ^0.69.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

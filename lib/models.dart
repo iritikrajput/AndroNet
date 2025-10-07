@@ -14,6 +14,9 @@ class PacketInfo {
   final Map<String, dynamic>? dnsData;
   final Map<String, dynamic>? tlsData;
   final Map<String, dynamic>? quicData;
+  final String? domain;
+  final String? domainFriendly;
+  final String? sourceDomain;
 
   const PacketInfo({
     required this.sourceIp,
@@ -34,6 +37,9 @@ class PacketInfo {
     this.dnsData,
     this.tlsData,
     this.quicData,
+    this.domain,
+    this.domainFriendly,
+    this.sourceDomain,
   });
 
   factory PacketInfo.fromMap(Map<String, dynamic> map) {
@@ -49,8 +55,8 @@ class PacketInfo {
     }
 
     return PacketInfo(
-      sourceIp: map['sourceIp']?.toString() ?? '',
-      destinationIp: map['destinationIp']?.toString() ?? '',
+      sourceIp: map['sourceIp']?.toString() ?? map['sourceAddress']?.toString() ?? '',
+      destinationIp: map['destinationIp']?.toString() ?? map['destinationAddress']?.toString() ?? '',
       sourcePort: int.tryParse(map['sourcePort'].toString()) ?? 0,
       destinationPort: int.tryParse(map['destinationPort'].toString()) ?? 0,
       protocol: map['protocol']?.toString() ?? 'UNK',
@@ -69,6 +75,9 @@ class PacketInfo {
       tlsData: map['tlsData'] != null ? Map<String, dynamic>.from(map['tlsData'] as Map) : null,
       quicData: map['quicData'] != null ? Map<String, dynamic>.from(map['quicData'] as Map) : null,
       anomalyScore: map['anomalyScore'] != null ? (map['anomalyScore'] as num).toDouble() : null,
+      domain: map['domain']?.toString(),
+      domainFriendly: map['domainFriendly']?.toString(),
+      sourceDomain: map['sourceDomain']?.toString(),
     );
   }
 

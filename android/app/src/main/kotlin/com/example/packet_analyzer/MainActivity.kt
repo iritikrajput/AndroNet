@@ -63,10 +63,11 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success("VPN started with zdtun packet forwarding")
                     }
                     "stopVpn" -> {
-                        // Stop ZdtunVpnService
+                        // Stop ZdtunVpnService properly
                         val intent = Intent(this, ZdtunVpnService::class.java)
-                        stopService(intent)
-                        result.success("VPN stopped")
+                        intent.action = "STOP_VPN"
+                        startService(intent) // Send stop command to service
+                        result.success("VPN stop requested")
                     }
                     "startCapture" -> {
                         val intent = Intent(this, CaptureService::class.java)

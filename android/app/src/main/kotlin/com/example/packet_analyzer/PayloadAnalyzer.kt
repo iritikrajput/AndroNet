@@ -160,7 +160,7 @@ object PayloadAnalyzer {
                         "contentType" to contentType,
                         "size" to fileData.size,
                         "data" to fileData,
-                        "filename" to extractHttpFilename(httpText),
+                        "filename" to (extractHttpFilename(httpText) ?: "unknown"),
                         "isBinary" to true
                     )
                     extractedFiles.add(fileInfo)
