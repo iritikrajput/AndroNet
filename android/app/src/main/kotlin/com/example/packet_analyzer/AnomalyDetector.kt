@@ -124,6 +124,7 @@ object AnomalyDetector {
             val destPort = (packetInfo["destinationPort"] as? Int) ?: 0
             val flags = packetInfo["flags"] as? String ?: ""
 
+            // === 1. Basic Rule-Based Detection ===
             if (protocol == "TCP" && destPort > 0) detectPortScan(sourceIp, destPort, destIp)
             if (protocol == "TCP" && flags.contains("SYN") && !flags.contains("ACK")) detectSynFlood(destIp)
             if (protocol == "TCP" && flags.contains("SYN")) detectConnectionFlood(sourceIp)
@@ -133,6 +134,57 @@ object AnomalyDetector {
             }
             if (protocol == "ARP") detectArpSpoofing(packetInfo)
 
+            // === 2. Signature-Based Detection ===
+            val signatureMatches = SignatureDatabase.matchSignatures(packetInfo, payload)
+            for (match in signatureMatches) {
+                reportAnomaly(
+                    Anomaly(
+                        type = when (match.signature.category) {
+                            SignatureDatabase.Category.MALWARE -> AnomalyType.UNUSUAL_TRAFFIC
+                            SignatureDatabase.Category.EXPLOIT -> AnomalyType.UNUSUAL_TRAFFIC
+                            SignatureDatabase.Category.RECONNAISSANCE -> AnomalyType.PORT_SCAN
+                            SignatureDatabase.Category.COMMAND_CONTROL -> AnomalyType.UNUSUAL_TRAFFIC
+                            SignatureDatabase.Category.DATA_EXFILTRATION -> AnomalyType.DNS_TUNNELING
+                            SignatureDatabase.Category.BRUTE_FORCE -> AnomalyType.CONNECTION_FLOOD
+                            SignatureDatabase.Category.WEB_ATTACK -> AnomalyType.UNUSUAL_TRAFFIC
+                            SignatureDatabase.Category.NETWORK_ATTACK -> AnomalyType.SYN_FLOOD
+                        },
+                        severity = match.signature.severity,
+                        description = "[${match.signature.id}] ${match.signature.name}: ${match.signature.description}",
+                        sourceIp = sourceIp,
+                        destinationIp = destIp,
+                        details = mapOf(
+                            "signatureId" to match.signature.id,
+                            "category" to match.signature.category.name
+                        )
+                    )
+                )
+            }
+
+            // === 3. Rule Engine Detection ===
+            val ruleMatches = RuleEngine.evaluateRules(packetInfo, payload)
+            for (match in ruleMatches) {
+                reportAnomaly(
+                    Anomaly(
+                        type = when (match.rule.category) {
+                            "RECONNAISSANCE" -> AnomalyType.PORT_SCAN
+                            "WEB_ATTACK" -> AnomalyType.UNUSUAL_TRAFFIC
+                            "MALWARE" -> AnomalyType.UNUSUAL_TRAFFIC
+                            "EXFILTRATION" -> AnomalyType.DNS_TUNNELING
+                            "BRUTE_FORCE" -> AnomalyType.CONNECTION_FLOOD
+                            "EXPLOIT" -> AnomalyType.UNUSUAL_TRAFFIC
+                            else -> AnomalyType.UNUSUAL_TRAFFIC
+                        },
+                        severity = match.rule.severity,
+                        description = "[${match.rule.id}] ${match.rule.name}: ${match.rule.description}",
+                        sourceIp = sourceIp,
+                        destinationIp = destIp,
+                        details = match.details
+                    )
+                )
+            }
+
+            // === 4. ML-Based Detection (Stubs) ===
             detectBehavioralAnomalies(packetInfo)
             detectEntropyAnomalies(packetInfo, payload)
             detectConnectionPatternAnomalies(packetInfo)

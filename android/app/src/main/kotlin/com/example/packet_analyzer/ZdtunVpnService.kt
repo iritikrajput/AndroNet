@@ -20,6 +20,8 @@ class ZdtunVpnService : VpnService() {
         private const val TAG = "ZdtunVpnService"
         private var methodChannel: MethodChannel? = null
         private var packetSink: EventChannel.EventSink? = null
+        private var anomalySink: EventChannel.EventSink? = null
+        private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         fun setMethodChannel(channel: MethodChannel) {
             methodChannel = channel
@@ -28,13 +30,29 @@ class ZdtunVpnService : VpnService() {
         fun setPacketSink(sink: EventChannel.EventSink?) {
             packetSink = sink
         }
+
+        fun setAnomalySink(sink: EventChannel.EventSink?) {
+            anomalySink = sink
+            Log.i(TAG, "Anomaly sink set: ${if (sink != null) "active" else "inactive"}")
+        }
+
+        fun sendAnomalyToFlutter(anomaly: Map<String, Any>) {
+            mainHandler.post {
+                try {
+                    anomalySink?.success(anomaly)
+                    Log.i(TAG, "🚨 Anomaly sent to Flutter: ${anomaly["type"]}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending anomaly to Flutter: ${e.message}")
+                }
+            }
+        }
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var isRunning = false
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var zdtunInitialized = false
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val instanceHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
@@ -115,6 +133,21 @@ class ZdtunVpnService : VpnService() {
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to start PacketAnalysisManager: ${e.message}")
             }
+
+            // Register anomaly listener to send anomalies to Flutter
+            AnomalyDetector.addAnomalyListener { anomaly ->
+                val anomalyMap = mapOf(
+                    "type" to anomaly.type.name,
+                    "severity" to anomaly.severity.name,
+                    "description" to anomaly.description,
+                    "sourceIp" to (anomaly.sourceIp ?: ""),
+                    "destinationIp" to (anomaly.destinationIp ?: ""),
+                    "timestamp" to anomaly.timestamp,
+                    "details" to anomaly.details
+                )
+                sendAnomalyToFlutter(anomalyMap)
+            }
+            Log.i(TAG, "✅ Anomaly listener registered")
 
             // Start packet processing coroutines
             serviceScope.launch {
@@ -436,7 +469,7 @@ class ZdtunVpnService : VpnService() {
             }
 
             // EventChannel.EventSink must be called from main thread
-            mainHandler.post {
+            instanceHandler.post {
                 try {
                     packetSink?.success(enrichedPacket)
                     Log.d(TAG, "✅ Packet sent to Flutter UI")

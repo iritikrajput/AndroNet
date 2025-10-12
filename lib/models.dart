@@ -55,8 +55,12 @@ class PacketInfo {
     }
 
     return PacketInfo(
-      sourceIp: map['sourceIp']?.toString() ?? map['sourceAddress']?.toString() ?? '',
-      destinationIp: map['destinationIp']?.toString() ?? map['destinationAddress']?.toString() ?? '',
+      sourceIp:
+          map['sourceIp']?.toString() ?? map['sourceAddress']?.toString() ?? '',
+      destinationIp:
+          map['destinationIp']?.toString() ??
+          map['destinationAddress']?.toString() ??
+          '',
       sourcePort: int.tryParse(map['sourcePort'].toString()) ?? 0,
       destinationPort: int.tryParse(map['destinationPort'].toString()) ?? 0,
       protocol: map['protocol']?.toString() ?? 'UNK',
@@ -70,11 +74,21 @@ class PacketInfo {
       appName: map['appName']?.toString(),
       dpiData: dpiFields.isNotEmpty ? dpiFields : null,
       payloadAnalysis: map['payloadAnalysis'] as Map<String, dynamic>?,
-      httpData: map['httpData'] != null ? Map<String, dynamic>.from(map['httpData'] as Map) : null,
-      dnsData: map['dnsData'] != null ? Map<String, dynamic>.from(map['dnsData'] as Map) : null,
-      tlsData: map['tlsData'] != null ? Map<String, dynamic>.from(map['tlsData'] as Map) : null,
-      quicData: map['quicData'] != null ? Map<String, dynamic>.from(map['quicData'] as Map) : null,
-      anomalyScore: map['anomalyScore'] != null ? (map['anomalyScore'] as num).toDouble() : null,
+      httpData: map['httpData'] != null
+          ? Map<String, dynamic>.from(map['httpData'] as Map)
+          : null,
+      dnsData: map['dnsData'] != null
+          ? Map<String, dynamic>.from(map['dnsData'] as Map)
+          : null,
+      tlsData: map['tlsData'] != null
+          ? Map<String, dynamic>.from(map['tlsData'] as Map)
+          : null,
+      quicData: map['quicData'] != null
+          ? Map<String, dynamic>.from(map['quicData'] as Map)
+          : null,
+      anomalyScore: map['anomalyScore'] != null
+          ? (map['anomalyScore'] as num).toDouble()
+          : null,
       domain: map['domain']?.toString(),
       domainFriendly: map['domainFriendly']?.toString(),
       sourceDomain: map['sourceDomain']?.toString(),
@@ -102,17 +116,21 @@ class PacketInfo {
 class AnomalyInfo {
   final String type;
   final String severity;
-  final String title;
+  final String title; // ADDED THIS PROPERTY - FIXES ERROR 1
   final String description;
-  final String timestamp;
+  final String sourceIp;
+  final String destinationIp;
+  final String timestamp; // CHANGED FROM int TO String - FIXES ERROR 4
   final Map<String, dynamic>? details;
 
   const AnomalyInfo({
     required this.type,
     required this.severity,
-    required this.title,
+    required this.title, // ADDED THIS PARAMETER - FIXES ERROR 1
     required this.description,
-    required this.timestamp,
+    required this.sourceIp,
+    required this.destinationIp,
+    required this.timestamp, // Now String instead of int - FIXES ERROR 4
     this.details,
   });
 
@@ -120,19 +138,105 @@ class AnomalyInfo {
     return AnomalyInfo(
       type: map['type']?.toString() ?? 'UNKNOWN',
       severity: map['severity']?.toString() ?? 'LOW',
-      title: map['title']?.toString() ?? 'Security Alert',
-      description: map['description']?.toString() ?? '',
-      timestamp: map['timestamp']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      title:
+          map['title']?.toString() ??
+          'Security Alert', // ADDED THIS LINE - FIXES ERROR 1
+      description:
+          map['description']?.toString() ?? 'Security anomaly detected',
+      sourceIp: map['sourceIp']?.toString() ?? '',
+      destinationIp: map['destinationIp']?.toString() ?? '',
+      timestamp:
+          map['timestamp']?.toString() ??
+          DateTime.now().millisecondsSinceEpoch
+              .toString(), // String format - FIXES ERROR 4
       details: map['details'] as Map<String, dynamic>?,
     );
   }
 
   String get formattedTime {
     try {
-      final time = DateTime.fromMillisecondsSinceEpoch(int.parse(timestamp));
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+      // Handle both String timestamp and int timestamp
+      final timestampInt = int.tryParse(timestamp);
+      if (timestampInt != null) {
+        final time = DateTime.fromMillisecondsSinceEpoch(timestampInt);
+        return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+      } else {
+        // If timestamp is already formatted, return as is
+        return timestamp;
+      }
     } catch (e) {
-      return timestamp.substring(0, math.min(8, timestamp.length));
+      return DateTime.now().toString().substring(11, 19);
+    }
+  }
+
+  String get formattedDate {
+    try {
+      final timestampInt = int.tryParse(timestamp);
+      if (timestampInt != null) {
+        final time = DateTime.fromMillisecondsSinceEpoch(timestampInt);
+        return '${time.day.toString().padLeft(2, '0')}/${time.month.toString().padLeft(2, '0')}/${time.year}';
+      } else {
+        return DateTime.now().toString().substring(0, 10);
+      }
+    } catch (e) {
+      return '';
+    }
+  }
+
+  Color get severityColor {
+    switch (severity.toUpperCase()) {
+      case 'CRITICAL':
+        return const Color(0xFFD32F2F); // Dark red
+      case 'HIGH':
+        return const Color(0xFFFF5722); // Orange-red
+      case 'MEDIUM':
+        return const Color(0xFFFF9800); // Orange
+      case 'LOW':
+        return const Color(0xFFFFC107); // Yellow
+      default:
+        return const Color(0xFF9E9E9E); // Gray
+    }
+  }
+
+  IconData get typeIcon {
+    switch (type.toUpperCase()) {
+      case 'PORT_SCAN':
+        return Icons.radar;
+      case 'SYN_FLOOD':
+        return Icons.water_damage;
+      case 'ARP_SPOOFING':
+        return Icons.warning_amber;
+      case 'DNS_TUNNELING':
+        return Icons.dns;
+      case 'CONNECTION_FLOOD':
+        return Icons.flood;
+      case 'UNUSUAL_TRAFFIC':
+        return Icons.traffic;
+      case 'MALFORMED_PACKET':
+        return Icons.broken_image;
+      default:
+        return Icons.security;
+    }
+  }
+
+  String get friendlyType {
+    switch (type.toUpperCase()) {
+      case 'PORT_SCAN':
+        return 'Port Scan';
+      case 'SYN_FLOOD':
+        return 'SYN Flood Attack';
+      case 'ARP_SPOOFING':
+        return 'ARP Spoofing';
+      case 'DNS_TUNNELING':
+        return 'DNS Tunneling';
+      case 'CONNECTION_FLOOD':
+        return 'Connection Flood';
+      case 'UNUSUAL_TRAFFIC':
+        return 'Unusual Traffic';
+      case 'MALFORMED_PACKET':
+        return 'Malformed Packet';
+      default:
+        return type.replaceAll('_', ' ');
     }
   }
 }
@@ -181,8 +285,5 @@ class PcapExportStatus {
   final bool isExporting;
   final String? filePath;
 
-  const PcapExportStatus({
-    this.isExporting = false,
-    this.filePath,
-  });
+  const PcapExportStatus({this.isExporting = false, this.filePath});
 }

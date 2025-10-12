@@ -12,10 +12,7 @@ import 'models.dart';
 class EnhancedPacketCard extends StatelessWidget {
   final PacketInfo packet;
 
-  const EnhancedPacketCard({
-    Key? key,
-    required this.packet,
-  }) : super(key: key);
+  const EnhancedPacketCard({Key? key, required this.packet}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +119,9 @@ class EnhancedPacketCard extends StatelessWidget {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: _getSecurityColor(securityLevel).withOpacity(0.1),
+                        color: _getSecurityColor(
+                          securityLevel,
+                        ).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
                           color: _getSecurityColor(securityLevel),
@@ -152,7 +151,9 @@ class EnhancedPacketCard extends StatelessWidget {
 
                   // File Detection Badge
                   if (hasPayloadAnalysis &&
-                      (packet.payloadAnalysis!['detectedFiles'] as List?)?.isNotEmpty == true) ...[
+                      (packet.payloadAnalysis!['detectedFiles'] as List?)
+                              ?.isNotEmpty ==
+                          true) ...[
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -167,7 +168,11 @@ class EnhancedPacketCard extends StatelessWidget {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.attach_file, size: 10, color: Colors.purple),
+                          Icon(
+                            Icons.attach_file,
+                            size: 10,
+                            color: Colors.purple,
+                          ),
                           SizedBox(width: 2),
                           Text(
                             'FILE',
@@ -189,7 +194,9 @@ class EnhancedPacketCard extends StatelessWidget {
                     packet.formattedTime,
                     style: TextStyle(
                       fontSize: 11,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -300,7 +307,8 @@ class EnhancedPacketCard extends StatelessWidget {
                   ],
 
                   // Anomaly Score Indicator
-                  if (packet.anomalyScore != null && packet.anomalyScore! > 0.5) ...[
+                  if (packet.anomalyScore != null &&
+                      packet.anomalyScore! > 0.5) ...[
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -475,16 +483,16 @@ class EnhancedPacketCard extends StatelessWidget {
 class EnhancedPacketDetailsDialog extends StatefulWidget {
   final PacketInfo packet;
 
-  const EnhancedPacketDetailsDialog({
-    Key? key,
-    required this.packet,
-  }) : super(key: key);
+  const EnhancedPacketDetailsDialog({Key? key, required this.packet})
+    : super(key: key);
 
   @override
-  State<EnhancedPacketDetailsDialog> createState() => _EnhancedPacketDetailsDialogState();
+  State<EnhancedPacketDetailsDialog> createState() =>
+      _EnhancedPacketDetailsDialogState();
 }
 
-class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialog> {
+class _EnhancedPacketDetailsDialogState
+    extends State<EnhancedPacketDetailsDialog> {
   bool _showHexView = false;
   bool _showHttpFormatted = false;
 
@@ -534,10 +542,7 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            protocolColor.withOpacity(0.8),
-            protocolColor,
-          ],
+          colors: [protocolColor.withOpacity(0.8), protocolColor],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -585,10 +590,7 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
           ),
           if (securityLevel > 0) ...[
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 4,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: _getSecurityColor(securityLevel),
                 borderRadius: BorderRadius.circular(12),
@@ -620,61 +622,66 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
       return const SizedBox.shrink();
     }
 
-    return _buildDetailSection(context,
-      '🔒 Security Analysis',
-      [
-        if (widget.packet.anomalyScore != null) ...[
-          _buildDetailRow(
-            'ML Anomaly Score',
-            '${(widget.packet.anomalyScore! * 100).toStringAsFixed(1)}%',
-            valueColor: _getAnomalyScoreColor(widget.packet.anomalyScore!),
-          ),
-          _buildDetailRow(
-            'Detection Algorithm',
-            _getAnomalyDetectionMethod(widget.packet),
-          ),
-        ],
-        if (payloadAnalysis?['securityFlags'] != null) ...[
-          ...(payloadAnalysis!['securityFlags'] as List).map((flag) =>
-            _buildDetailRow(
-              'Security Flag',
-              flag.toString(),
-              valueColor: Colors.red,
-            ),
-          ),
-        ],
-        if (securityLevel > 0) ...[
-          _buildDetailRow(
-            'Risk Assessment',
-            _getSecurityDescription(securityLevel),
-            valueColor: _getSecurityColor(securityLevel),
-          ),
-        ],
+    return _buildDetailSection(context, '🔒 Security Analysis', [
+      if (widget.packet.anomalyScore != null) ...[
+        _buildDetailRow(
+          'ML Anomaly Score',
+          '${(widget.packet.anomalyScore! * 100).toStringAsFixed(1)}%',
+          valueColor: _getAnomalyScoreColor(widget.packet.anomalyScore!),
+        ),
+        _buildDetailRow(
+          'Detection Algorithm',
+          _getAnomalyDetectionMethod(widget.packet),
+        ),
       ],
-    );
+      if (payloadAnalysis?['securityFlags'] != null) ...[
+        ...(payloadAnalysis!['securityFlags'] as List).map(
+          (flag) => _buildDetailRow(
+            'Security Flag',
+            flag.toString(),
+            valueColor: Colors.red,
+          ),
+        ),
+      ],
+      if (securityLevel > 0) ...[
+        _buildDetailRow(
+          'Risk Assessment',
+          _getSecurityDescription(securityLevel),
+          valueColor: _getSecurityColor(securityLevel),
+        ),
+      ],
+    ]);
   }
 
   Widget _buildNetworkInformationSection(BuildContext context) {
-    return _buildDetailSection(context,
-      '🌐 Network Information',
-      [
-        if (widget.packet.domainFriendly != null)
-          _buildDetailRow(
-            'Domain',
-            widget.packet.domainFriendly!,
-            valueColor: Colors.cyan.shade300,
-          ),
-        if (widget.packet.domain != null && widget.packet.domain != widget.packet.domainFriendly)
-          _buildDetailRow('Full Domain', widget.packet.domain!),
-        _buildDetailRow('Source', '${widget.packet.sourceIp}:${widget.packet.sourcePort}'),
-        _buildDetailRow('Destination', '${widget.packet.destinationIp}:${widget.packet.destinationPort}'),
-        _buildDetailRow('Protocol', '${widget.packet.protocol} (${widget.packet.appName ?? 'Unknown'})'),
-        _buildDetailRow('Direction', widget.packet.displayDirection),
-        _buildDetailRow('Packet Size', '${widget.packet.size} bytes'),
-        _buildDetailRow('Captured', widget.packet.formattedTime),
-        if (widget.packet.flags != null) _buildDetailRow('TCP Flags', widget.packet.flags!),
-      ],
-    );
+    return _buildDetailSection(context, '🌐 Network Information', [
+      if (widget.packet.domainFriendly != null)
+        _buildDetailRow(
+          'Domain',
+          widget.packet.domainFriendly!,
+          valueColor: Colors.cyan.shade300,
+        ),
+      if (widget.packet.domain != null &&
+          widget.packet.domain != widget.packet.domainFriendly)
+        _buildDetailRow('Full Domain', widget.packet.domain!),
+      _buildDetailRow(
+        'Source',
+        '${widget.packet.sourceIp}:${widget.packet.sourcePort}',
+      ),
+      _buildDetailRow(
+        'Destination',
+        '${widget.packet.destinationIp}:${widget.packet.destinationPort}',
+      ),
+      _buildDetailRow(
+        'Protocol',
+        '${widget.packet.protocol} (${widget.packet.appName ?? 'Unknown'})',
+      ),
+      _buildDetailRow('Direction', widget.packet.displayDirection),
+      _buildDetailRow('Packet Size', '${widget.packet.size} bytes'),
+      _buildDetailRow('Captured', widget.packet.formattedTime),
+      if (widget.packet.flags != null)
+        _buildDetailRow('TCP Flags', widget.packet.flags!),
+    ]);
   }
 
   Widget _buildProtocolDetailsSection(BuildContext context) {
@@ -684,9 +691,12 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
       return const SizedBox.shrink();
     }
 
-    return _buildDetailSection(context,
+    return _buildDetailSection(
+      context,
       '📋 Protocol Details',
-      protocolDetails.map((detail) => _buildDetailRow(detail['label']!, detail['value']!)).toList(),
+      protocolDetails
+          .map((detail) => _buildDetailRow(detail['label']!, detail['value']!))
+          .toList(),
     );
   }
 
@@ -752,7 +762,9 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceVariant.withOpacity(0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -784,7 +796,9 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
                   child: _showHttpFormatted
                       ? _buildHttpFormattedView()
                       : SelectableText(
-                          _showHexView ? _toHexView(widget.packet.payload) : _toAsciiView(widget.packet.payload),
+                          _showHexView
+                              ? _toHexView(widget.packet.payload)
+                              : _toAsciiView(widget.packet.payload),
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 11,
@@ -824,7 +838,9 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
           _buildFileDetectionSection(payloadAnalysis['detectedFiles'] as List),
         ],
         if (payloadAnalysis['extractedFiles'] != null) ...[
-          _buildExtractedFilesSection(payloadAnalysis['extractedFiles'] as List),
+          _buildExtractedFilesSection(
+            payloadAnalysis['extractedFiles'] as List,
+          ),
         ],
         if (payloadAnalysis['entropy'] != null) ...[
           _buildEntropyAnalysisSection(payloadAnalysis['entropy'] as Map),
@@ -893,8 +909,14 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          _buildDetailRow('Shannon Entropy', entropy['value']?.toStringAsFixed(3) ?? 'N/A'),
-          _buildDetailRow('Interpretation', entropy['interpretation'] ?? 'Normal'),
+          _buildDetailRow(
+            'Shannon Entropy',
+            entropy['value']?.toStringAsFixed(3) ?? 'N/A',
+          ),
+          _buildDetailRow(
+            'Interpretation',
+            entropy['interpretation'] ?? 'Normal',
+          ),
         ],
       ),
     );
@@ -921,10 +943,7 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
           ),
           Text(
             '${file['size'] ?? 0} bytes',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
           ),
         ],
       ),
@@ -952,17 +971,18 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
           ),
           Text(
             '${file['size'] ?? 0} bytes',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDetailSection(BuildContext context, String title, List<Widget> children) {
+  Widget _buildDetailSection(
+    BuildContext context,
+    String title,
+    List<Widget> children,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -978,7 +998,9 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceVariant.withOpacity(0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -1006,10 +1028,7 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
           Expanded(
             child: SelectableText(
               value,
-              style: TextStyle(
-                fontSize: 12,
-                color: valueColor,
-              ),
+              style: TextStyle(fontSize: 12, color: valueColor),
             ),
           ),
         ],
@@ -1021,31 +1040,50 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
   Color _getProtocolColor(String protocol) {
     // Implementation similar to EnhancedPacketCard
     switch (protocol.toUpperCase()) {
-      case 'HTTP': return Colors.blue;
-      case 'HTTPS': return Colors.green;
-      case 'DNS': return Colors.orange;
-      case 'TLS': return Colors.teal;
-      case 'QUIC': return Colors.purple;
-      case 'SIP': return Colors.cyan;
-      case 'RTP': return Colors.indigo;
-      case 'SMB': return Colors.brown;
-      case 'NTP': return Colors.lime;
-      default: return Colors.grey;
+      case 'HTTP':
+        return Colors.blue;
+      case 'HTTPS':
+        return Colors.green;
+      case 'DNS':
+        return Colors.orange;
+      case 'TLS':
+        return Colors.teal;
+      case 'QUIC':
+        return Colors.purple;
+      case 'SIP':
+        return Colors.cyan;
+      case 'RTP':
+        return Colors.indigo;
+      case 'SMB':
+        return Colors.brown;
+      case 'NTP':
+        return Colors.lime;
+      default:
+        return Colors.grey;
     }
   }
 
   IconData _getProtocolIcon(String protocol) {
     // Implementation similar to EnhancedPacketCard
     switch (protocol.toUpperCase()) {
-      case 'HTTP': return Icons.http;
-      case 'DNS': return Icons.dns;
-      case 'TLS': return Icons.lock;
-      case 'QUIC': return Icons.flash_on;
-      case 'SIP': return Icons.phone;
-      case 'RTP': return Icons.play_circle;
-      case 'SMB': return Icons.folder;
-      case 'NTP': return Icons.access_time;
-      default: return Icons.help_outline;
+      case 'HTTP':
+        return Icons.http;
+      case 'DNS':
+        return Icons.dns;
+      case 'TLS':
+        return Icons.lock;
+      case 'QUIC':
+        return Icons.flash_on;
+      case 'SIP':
+        return Icons.phone;
+      case 'RTP':
+        return Icons.play_circle;
+      case 'SMB':
+        return Icons.folder;
+      case 'NTP':
+        return Icons.access_time;
+      default:
+        return Icons.help_outline;
     }
   }
 
@@ -1055,30 +1093,42 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
       if (flags.contains('EXECUTABLE_CONTENT_DETECTED')) return 3;
       if (flags.contains('SUSPICIOUS_CODE_EXECUTION')) return 2;
     }
-    return widget.packet.anomalyScore != null && widget.packet.anomalyScore! > 0.8 ? 2 : 0;
+    return widget.packet.anomalyScore != null &&
+            widget.packet.anomalyScore! > 0.8
+        ? 2
+        : 0;
   }
 
   Color _getSecurityColor(int level) {
     switch (level) {
-      case 3: return Colors.red;
-      case 2: return Colors.orange;
-      default: return Colors.grey;
+      case 3:
+        return Colors.red;
+      case 2:
+        return Colors.orange;
+      default:
+        return Colors.grey;
     }
   }
 
   String _getSecurityLabel(int level) {
     switch (level) {
-      case 3: return 'CRITICAL';
-      case 2: return 'WARNING';
-      default: return 'SAFE';
+      case 3:
+        return 'CRITICAL';
+      case 2:
+        return 'WARNING';
+      default:
+        return 'SAFE';
     }
   }
 
   String _getSecurityDescription(int level) {
     switch (level) {
-      case 3: return 'High-risk content detected';
-      case 2: return 'Suspicious patterns found';
-      default: return 'No security concerns';
+      case 3:
+        return 'High-risk content detected';
+      case 2:
+        return 'Suspicious patterns found';
+      default:
+        return 'No security concerns';
     }
   }
 
@@ -1092,7 +1142,8 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
   String _getAnomalyDetectionMethod(PacketInfo packet) {
     if (packet.anomalyScore != null) {
       // Determine which ML algorithm detected the anomaly
-      if (packet.protocol == 'TCP' && packet.flags != null) return 'Connection Pattern Analysis';
+      if (packet.protocol == 'TCP' && packet.flags != null)
+        return 'Connection Pattern Analysis';
       if (packet.size > 10000) return 'Statistical Size Analysis';
       if (packet.payloadAnalysis?['entropy'] != null) return 'Entropy Analysis';
       return 'Behavioral Analysis';
@@ -1106,35 +1157,64 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
     if (widget.packet.httpData != null) {
       final http = widget.packet.httpData!;
       details.addAll([
-        {'label': 'HTTP Method', 'value': http['method']?.toString() ?? 'Unknown'},
+        {
+          'label': 'HTTP Method',
+          'value': http['method']?.toString() ?? 'Unknown',
+        },
         {'label': 'URI', 'value': http['uri']?.toString() ?? 'Unknown'},
-        {'label': 'Status', 'value': '${http['statusCode']?.toString() ?? ''} ${http['statusMessage']?.toString() ?? ''}'},
-        if (http['contentType'] != null) {'label': 'Content-Type', 'value': http['contentType']!.toString()},
+        {
+          'label': 'Status',
+          'value':
+              '${http['statusCode']?.toString() ?? ''} ${http['statusMessage']?.toString() ?? ''}',
+        },
+        if (http['contentType'] != null)
+          {'label': 'Content-Type', 'value': http['contentType']!.toString()},
       ]);
     }
 
     if (widget.packet.dnsData != null) {
       final dns = widget.packet.dnsData!;
       details.addAll([
-        {'label': 'Query Type', 'value': dns['queryType']?.toString() ?? 'Unknown'},
-        {'label': 'Query Name', 'value': dns['queryName']?.toString() ?? 'Unknown'},
-        {'label': 'Response Code', 'value': dns['responseCode']?.toString() ?? 'Unknown'},
+        {
+          'label': 'Query Type',
+          'value': dns['queryType']?.toString() ?? 'Unknown',
+        },
+        {
+          'label': 'Query Name',
+          'value': dns['queryName']?.toString() ?? 'Unknown',
+        },
+        {
+          'label': 'Response Code',
+          'value': dns['responseCode']?.toString() ?? 'Unknown',
+        },
       ]);
     }
 
     if (widget.packet.tlsData != null) {
       final tls = widget.packet.tlsData!;
       details.addAll([
-        {'label': 'TLS Version', 'value': tls['version']?.toString() ?? 'Unknown'},
-        {'label': 'Handshake Type', 'value': tls['handshakeType']?.toString() ?? 'Unknown'},
+        {
+          'label': 'TLS Version',
+          'value': tls['version']?.toString() ?? 'Unknown',
+        },
+        {
+          'label': 'Handshake Type',
+          'value': tls['handshakeType']?.toString() ?? 'Unknown',
+        },
       ]);
     }
 
     if (widget.packet.quicData != null) {
       final quic = widget.packet.quicData!;
       details.addAll([
-        {'label': 'QUIC Version', 'value': quic['version']?.toString() ?? 'Unknown'},
-        {'label': 'Connection ID', 'value': quic['destinationConnectionId']?.toString() ?? 'Unknown'},
+        {
+          'label': 'QUIC Version',
+          'value': quic['version']?.toString() ?? 'Unknown',
+        },
+        {
+          'label': 'Connection ID',
+          'value': quic['destinationConnectionId']?.toString() ?? 'Unknown',
+        },
       ]);
     }
 
@@ -1206,13 +1286,13 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
   bool _isHttpPayload() {
     final payload = widget.packet.payload.trim();
     return payload.startsWith('HTTP/') ||
-           payload.startsWith('GET ') ||
-           payload.startsWith('POST ') ||
-           payload.startsWith('PUT ') ||
-           payload.startsWith('DELETE ') ||
-           payload.startsWith('HEAD ') ||
-           payload.startsWith('OPTIONS ') ||
-           payload.startsWith('PATCH ');
+        payload.startsWith('GET ') ||
+        payload.startsWith('POST ') ||
+        payload.startsWith('PUT ') ||
+        payload.startsWith('DELETE ') ||
+        payload.startsWith('HEAD ') ||
+        payload.startsWith('OPTIONS ') ||
+        payload.startsWith('PATCH ');
   }
 
   Widget _buildHttpFormattedView() {
@@ -1224,7 +1304,9 @@ class _EnhancedPacketDetailsDialogState extends State<EnhancedPacketDetailsDialo
     if (bodyStartIndex == -1) bodyStartIndex = lines.length;
 
     final headerLines = lines.sublist(0, bodyStartIndex);
-    final bodyLines = bodyStartIndex < lines.length - 1 ? lines.sublist(bodyStartIndex + 1) : <String>[];
+    final bodyLines = bodyStartIndex < lines.length - 1
+        ? lines.sublist(bodyStartIndex + 1)
+        : <String>[];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1402,9 +1484,10 @@ class AnomalyDetectionPanel extends StatelessWidget {
             )
           else
             Column(
-              children: anomalies.take(5).map((anomaly) =>
-                _buildAnomalyItem(anomaly),
-              ).toList(),
+              children: anomalies
+                  .take(5)
+                  .map((anomaly) => _buildAnomalyItem(anomaly))
+                  .toList(),
             ),
         ],
       ),
@@ -1446,11 +1529,8 @@ class AnomalyDetectionPanel extends StatelessWidget {
             ),
           ),
           Text(
-            anomaly.timestamp,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 9,
-            ),
+            anomaly.timestamp.toString(),
+            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 9),
           ),
         ],
       ),
@@ -1459,21 +1539,31 @@ class AnomalyDetectionPanel extends StatelessWidget {
 
   Color _getAnomalyColor(String severity) {
     switch (severity.toLowerCase()) {
-      case 'critical': return Colors.red.shade700;
-      case 'high': return Colors.orange.shade700;
-      case 'medium': return Colors.yellow.shade700;
-      case 'low': return Colors.blue.shade700;
-      default: return Colors.grey.shade700;
+      case 'critical':
+        return Colors.red.shade700;
+      case 'high':
+        return Colors.orange.shade700;
+      case 'medium':
+        return Colors.yellow.shade700;
+      case 'low':
+        return Colors.blue.shade700;
+      default:
+        return Colors.grey.shade700;
     }
   }
 
   IconData _getAnomalyIcon(String type) {
     switch (type.toLowerCase()) {
-      case 'port_scan': return Icons.scanner;
-      case 'syn_flood': return Icons.flood;
-      case 'unusual_traffic': return Icons.warning;
-      case 'malicious_content': return Icons.security;
-      default: return Icons.error;
+      case 'port_scan':
+        return Icons.scanner;
+      case 'syn_flood':
+        return Icons.flood;
+      case 'unusual_traffic':
+        return Icons.warning;
+      case 'malicious_content':
+        return Icons.security;
+      default:
+        return Icons.error;
     }
   }
 }
@@ -1483,10 +1573,8 @@ class AnomalyDetectionPanel extends StatelessWidget {
 class FileCarvingPanel extends StatelessWidget {
   final Map<String, dynamic> payloadAnalysis;
 
-  const FileCarvingPanel({
-    Key? key,
-    required this.payloadAnalysis,
-  }) : super(key: key);
+  const FileCarvingPanel({Key? key, required this.payloadAnalysis})
+    : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -1607,10 +1695,7 @@ class FileCarvingPanel extends StatelessWidget {
           ),
           Text(
             '${file['size']} bytes',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
           ),
         ],
       ),
@@ -1624,7 +1709,8 @@ class FileCarvingPanel extends StatelessWidget {
     if (mimeType.startsWith('video/')) return Icons.video_file;
     if (mimeType.startsWith('audio/')) return Icons.audio_file;
     if (mimeType == 'application/pdf') return Icons.picture_as_pdf;
-    if (mimeType.contains('zip') || mimeType.contains('rar')) return Icons.archive;
+    if (mimeType.contains('zip') || mimeType.contains('rar'))
+      return Icons.archive;
     if (mimeType.startsWith('text/')) return Icons.text_snippet;
     if (mimeType.contains('executable')) return Icons.computer;
 
@@ -1638,7 +1724,8 @@ class FileCarvingPanel extends StatelessWidget {
     if (mimeType.startsWith('video/')) return Colors.purple;
     if (mimeType.startsWith('audio/')) return Colors.green;
     if (mimeType == 'application/pdf') return Colors.red;
-    if (mimeType.contains('zip') || mimeType.contains('rar')) return Colors.orange;
+    if (mimeType.contains('zip') || mimeType.contains('rar'))
+      return Colors.orange;
     if (mimeType.startsWith('text/')) return Colors.teal;
     if (mimeType.contains('executable')) return Colors.red;
 
