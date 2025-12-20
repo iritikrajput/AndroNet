@@ -15,7 +15,7 @@
  <div id="team-container">
   <pre align="center">
     Team CipherSec
-    Members: Ritik, Syed Misbah Uddin, Kamal Akhter, Swastik
+    Members: Ritik, Syed Misbah Uddin, Kamal Akhter, Swastik.
   </pre>
 </div>
 
