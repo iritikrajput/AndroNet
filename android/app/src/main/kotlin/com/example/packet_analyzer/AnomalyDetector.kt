@@ -115,6 +115,25 @@ object AnomalyDetector {
         anomalyListeners.remove(listener)
     }
 
+    fun calculateAnomalyScore(packetInfo: Map<String, Any>): Double {
+        val sourceIp = packetInfo["sourceIp"] as? String ?: ""
+        val destIp = (packetInfo["destinationIp"] ?: packetInfo["destinationAddress"]) as? String ?: ""
+
+        val portScanScore = portScans[sourceIp]?.let {
+            (it.ports.size.toDouble() / PORT_SCAN_THRESHOLD).coerceIn(0.0, 1.0)
+        } ?: 0.0
+
+        val synFloodScore = synFloodTracker[destIp]?.let {
+            (it.synCount.toDouble() / SYN_FLOOD_THRESHOLD).coerceIn(0.0, 1.0)
+        } ?: 0.0
+
+        val connectionScore = connectionTracker[sourceIp]?.let {
+            (it.connections.toDouble() / CONNECTION_RATE_THRESHOLD).coerceIn(0.0, 1.0)
+        } ?: 0.0
+
+        return (portScanScore * 0.3 + synFloodScore * 0.4 + connectionScore * 0.3).coerceIn(0.0, 1.0)
+    }
+
     // === Core Analysis ===
     fun analyzePacket(packetInfo: Map<String, Any>, payload: ByteArray? = null) {
         try {
