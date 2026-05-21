@@ -396,7 +396,6 @@ object SignatureDatabase {
             )
         )
 
-        Log.i(TAG, "Loaded ${signatures.size} signatures")
     }
 
     /**
