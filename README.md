@@ -115,19 +115,35 @@ Advanced payload analysis for application-layer protocols:
 ###  **Security Anomaly Detection**
 Real-time threat detection with 5 built-in algorithms:
 
-1. **Port Scan Detection** - Threshold: 20+ ports in 10 seconds (Severity: HIGH)
-2. **SYN Flood Detection** - Threshold: 100+ SYN packets/second (Severity: CRITICAL)
-3. **Connection Flooding** - Threshold: 50+ connections/second (Severity: HIGH)
+1. **Port Scan Detection** - Adaptive threshold (default: 20+ ports in 10 seconds, Severity: HIGH)
+2. **SYN Flood Detection** - Adaptive threshold (default: 100+ SYN packets/second, Severity: CRITICAL)
+3. **Connection Flooding** - Adaptive threshold (default: 50+ connections/second, Severity: HIGH)
 4. **DNS Tunneling** - Detects excessive queries and long domain names (Severity: MEDIUM)
 5. **ARP Spoofing** - Monitors IP-to-MAC mapping changes (Severity: CRITICAL)
 - Real-time SnackBar alerts in the Flutter UI showing severity, type, source IP, and description
 
-**Entropy Analysis** (Shannon entropy on every payload ≥ 32 bytes):
-- DNS tunneling detected: dnscat2, iodine signatures (entropy > 5.5 in DNS queries)
+**Adaptive Thresholds:**
+- 60-second learning period on capture start — no false alerts during calibration
+- Baselines calculated from 90th percentile of observed traffic (resistant to outlier spikes)
+- Exponential moving average (α=0.05) keeps baselines current as traffic patterns change
+- Hard floor values prevent baseline-poisoning attacks (attacker slowly trains thresholds up)
+- Ceiling multiplier (4×) prevents thresholds from drifting high enough to miss real attacks
+- Real-time threshold values visible in Settings → Adaptive Thresholds panel
+- Status indicator turns amber with countdown during calibration, green when monitoring
+
+**Entropy Analysis** (Shannon entropy on every payload ≥ 64 bytes):
+- DNS tunneling detected: dnscat2, iodine signatures (entropy > 6.2 in DNS queries)
 - ICMP covert channels detected: icmptunnel, ptunnel (entropy > 6.0 in ICMP payloads)
-- HTTP/plain-protocol data exfiltration detected (entropy > 7.2)
-- Suspicious encoding in HTTP/DNS flagged at medium severity (entropy 6.5–7.2)
+- HTTP/plain-protocol data exfiltration detected (entropy > 7.6)
+- Suspicious encoding in HTTP/DNS flagged at medium severity (entropy 7.2–7.6)
 - Entropy score visible as a badge (`E:x.x`) on each packet in the capture UI
+
+**Entropy False Positive Mitigations:**
+- Cooldown: same source IP suppressed for 30 seconds after an alert fires
+- Consecutive requirement: 5 high-entropy packets required before alerting (3 for DNS)
+- Magic byte pre-filter: JPEG, PNG, ZIP, GZIP, BZ2, XZ, RAR, 7ZIP, MP4, WebM automatically excluded
+- Protocol allowlist: TLS, QUIC, HTTPS, SSL, DTLS, WireGuard, IPSec, SSH, SFTP, FTPS, SMTPS, IMAPS, POP3S, DoT, DoH, SRTP, ZRTP never trigger entropy alerts
+- DNS tunnel threshold raised to 6.2 (eliminates false positives from legitimate base64 subdomains)
 
 ###  **Traffic Statistics & Analytics**
 - Real-time metrics (packets/sec, bytes/sec, connections)

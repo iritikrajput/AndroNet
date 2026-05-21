@@ -1,10 +1,9 @@
 package com.example.packet_analyzer
 
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.math.abs
 import kotlin.math.log2
-import kotlin.math.sqrt
 
 /**
  * Network Anomaly Detection System
@@ -13,17 +12,53 @@ import kotlin.math.sqrt
 object AnomalyDetector {
     private const val TAG = "AnomalyDetector"
 
-    // Detection thresholds
-    private const val PORT_SCAN_THRESHOLD = 20
+    // Detection threshold floor values — adaptive values take precedence at runtime
+    private const val FLOOR_PORT_SCAN = 20
     private const val PORT_SCAN_WINDOW_MS = 10000L
-    private const val SYN_FLOOD_THRESHOLD = 100
-    private const val CONNECTION_RATE_THRESHOLD = 50
+    private const val FLOOR_SYN_FLOOD = 100
+    private const val FLOOR_CONNECTION_RATE = 50
     private const val DNS_QUERY_THRESHOLD = 30
 
     // Entropy analysis thresholds
-    private const val ENTROPY_THRESHOLD_HIGH = 7.2
-    private const val ENTROPY_THRESHOLD_SUSPICIOUS = 6.5
-    private const val MIN_PAYLOAD_SIZE_FOR_ENTROPY = 32
+    // COMMIT 1: raised to reduce false positives from compressed media and modern compression
+    private const val ENTROPY_THRESHOLD_HIGH = 7.6
+    private const val ENTROPY_THRESHOLD_SUSPICIOUS = 7.2
+    private const val ENTROPY_THRESHOLD_DNS_TUNNEL = 6.2
+    private const val MIN_PAYLOAD_SIZE_FOR_ENTROPY = 64
+
+    // COMMIT 1: protocol allowlist — these always produce high entropy legitimately
+    private val ENTROPY_ALLOWLIST = setOf(
+        "TLS", "QUIC", "HTTPS", "SSL",
+        "DTLS",
+        "WireGuard",
+        "IPSec",
+        "SSH",
+        "SFTP",
+        "FTPS",
+        "SMTPS",
+        "IMAPS",
+        "POP3S",
+        "DoT",
+        "DoH",
+        "SRTP",
+        "ZRTP"
+    )
+
+    // COMMIT 2: cooldown — prevents the same source IP from flooding the alert log
+    private val entropyAlertCooldown = ConcurrentHashMap<String, Long>()
+    private const val ENTROPY_COOLDOWN_MS = 30_000L
+
+    // COMMIT 3: consecutive high-entropy packet counters — one-off packets are not evidence
+    private val highEntropyPacketCount = ConcurrentHashMap<String, Int>()
+    private val dnsHighEntropyCount = ConcurrentHashMap<String, Int>()
+    private const val ENTROPY_CONSECUTIVE_THRESHOLD = 5
+    private const val DNS_ENTROPY_CONSECUTIVE_THRESHOLD = 3
+
+    // COMMIT 2: packet counter drives periodic cooldown map cleanup
+    private var packetCount = 0
+
+    // COMMIT 7: adaptive thresholds replace all hard-coded comparison values
+    val adaptiveThresholds = AdaptiveThresholdManager()
 
     // ML-based data structures
     private val trafficStats = TrafficStatistics()
@@ -31,12 +66,6 @@ object AnomalyDetector {
     private val entropyAnalyzer = EntropyAnalyzer()
     private val connectionPatternAnalyzer = ConnectionPatternAnalyzer()
 
-    // Adaptive thresholds
-    private var adaptivePortScanThreshold = PORT_SCAN_THRESHOLD.toDouble()
-    private var adaptiveSynFloodThreshold = SYN_FLOOD_THRESHOLD.toDouble()
-    private var adaptiveConnectionRateThreshold = CONNECTION_RATE_THRESHOLD.toDouble()
-
-    // Statistical models
     private data class StatisticalModel(
         var mean: Double = 0.0,
         var variance: Double = 0.0,
@@ -139,15 +168,15 @@ object AnomalyDetector {
         val destIp = (packetInfo["destinationIp"] ?: packetInfo["destinationAddress"]) as? String ?: ""
 
         val portScanScore = portScans[sourceIp]?.let {
-            (it.ports.size.toDouble() / PORT_SCAN_THRESHOLD).coerceIn(0.0, 1.0)
+            (it.ports.size.toDouble() / adaptiveThresholds.portScanThreshold).coerceIn(0.0, 1.0)
         } ?: 0.0
 
         val synFloodScore = synFloodTracker[destIp]?.let {
-            (it.synCount.toDouble() / SYN_FLOOD_THRESHOLD).coerceIn(0.0, 1.0)
+            (it.synCount.toDouble() / adaptiveThresholds.synFloodThreshold).coerceIn(0.0, 1.0)
         } ?: 0.0
 
         val connectionScore = connectionTracker[sourceIp]?.let {
-            (it.connections.toDouble() / CONNECTION_RATE_THRESHOLD).coerceIn(0.0, 1.0)
+            (it.connections.toDouble() / adaptiveThresholds.connectionRateThreshold).coerceIn(0.0, 1.0)
         } ?: 0.0
 
         return (portScanScore * 0.3 + synFloodScore * 0.4 + connectionScore * 0.3).coerceIn(0.0, 1.0)
@@ -156,6 +185,16 @@ object AnomalyDetector {
     // === Core Analysis ===
     fun analyzePacket(packetInfo: Map<String, Any>, payload: ByteArray? = null) {
         try {
+            // COMMIT 10: during the 60-second learning period only record observations,
+            // never fire alerts — prevents the first-minute false positive flood
+            if (adaptiveThresholds.isInLearningPeriod()) {
+                recordObservationsOnly(packetInfo)
+                return
+            }
+
+            // COMMIT 2: periodic cleanup of the cooldown map to prevent unbounded growth
+            if (++packetCount % 1000 == 0) clearStaleEntropyCooldowns()
+
             val sourceIp = packetInfo["sourceIp"] as? String ?: return
             val destIp = packetInfo["destinationIp"] as? String ?: return
             val protocol = packetInfo["protocol"] as? String ?: return
@@ -237,9 +276,29 @@ object AnomalyDetector {
             updateBehavioralModels(packetInfo)
             updateAdaptiveThresholds()
 
+            // === 6. Record adaptive baseline observations (COMMIT 8) ===
+            adaptiveThresholds.recordObservation(
+                portScans = getCurrentPortScanRate(),
+                synRate = getCurrentSynRate(),
+                connectionRate = getCurrentConnectionRate(),
+                dnsRate = getCurrentDnsRate(),
+                arpRate = getCurrentArpRate()
+            )
+
         } catch (e: Exception) {
             Log.e(TAG, "Error analyzing packet: ${e.message}")
         }
+    }
+
+    // COMMIT 10: record observations without running any detection logic
+    private fun recordObservationsOnly(packetInfo: Map<String, Any>) {
+        adaptiveThresholds.recordObservation(
+            portScans = getCurrentPortScanRate(),
+            synRate = getCurrentSynRate(),
+            connectionRate = getCurrentConnectionRate(),
+            dnsRate = getCurrentDnsRate(),
+            arpRate = getCurrentArpRate()
+        )
     }
 
     // === Basic Detection Functions ===
@@ -254,7 +313,8 @@ object AnomalyDetector {
         tracker.ports.add(port)
         tracker.lastSeen = now
 
-        if (tracker.ports.size >= PORT_SCAN_THRESHOLD) {
+        // COMMIT 7: use adaptive threshold instead of hard-coded constant
+        if (tracker.ports.size >= adaptiveThresholds.portScanThreshold) {
             reportAnomaly(
                 Anomaly(
                     AnomalyType.PORT_SCAN, Severity.HIGH,
@@ -275,7 +335,8 @@ object AnomalyDetector {
             tracker.windowStart = now
         }
         tracker.synCount++
-        if (tracker.synCount >= SYN_FLOOD_THRESHOLD) {
+        // COMMIT 7: use adaptive threshold
+        if (tracker.synCount >= adaptiveThresholds.synFloodThreshold) {
             reportAnomaly(
                 Anomaly(AnomalyType.SYN_FLOOD, Severity.CRITICAL, "Possible SYN flood", destinationIp = targetIp)
             )
@@ -292,7 +353,8 @@ object AnomalyDetector {
             tracker.windowStart = now
         }
         tracker.connections++
-        if (tracker.connections >= CONNECTION_RATE_THRESHOLD) {
+        // COMMIT 7: use adaptive threshold
+        if (tracker.connections >= adaptiveThresholds.connectionRateThreshold) {
             reportAnomaly(
                 Anomaly(AnomalyType.CONNECTION_FLOOD, Severity.HIGH, "Connection flood detected", sourceIp = sourceIp)
             )
@@ -309,10 +371,37 @@ object AnomalyDetector {
     ) {
         if (payload.size < MIN_PAYLOAD_SIZE_FOR_ENTROPY) return
         if (protocol.isEmpty()) return
-        // TLS, QUIC, HTTPS are always high entropy — skip to avoid false positives
-        if (protocol == "TLS" || protocol == "QUIC" || protocol == "HTTPS") return
+        // COMMIT 4: skip known compressed/encrypted binary formats
+        if (isKnownCompressedFormat(payload)) return
+        // COMMIT 1: skip protocols that legitimately always produce high entropy
+        if (protocol.uppercase() in ENTROPY_ALLOWLIST) return
 
         val entropy = calculateEntropy(payload)
+
+        // Determine whether this packet's entropy would qualify for any alert
+        val wouldAlert = when {
+            protocol == "ICMP" && entropy > 6.0 -> true
+            (protocol == "HTTP" || protocol == "DNS") && entropy > ENTROPY_THRESHOLD_SUSPICIOUS -> true
+            entropy > ENTROPY_THRESHOLD_HIGH -> true
+            else -> false
+        }
+
+        // COMMIT 3: require 5 consecutive high-entropy packets before alerting;
+        // a single outlier packet is not evidence of tunneling
+        if (wouldAlert) {
+            highEntropyPacketCount[sourceIp] = (highEntropyPacketCount[sourceIp] ?: 0) + 1
+            if ((highEntropyPacketCount[sourceIp] ?: 0) < ENTROPY_CONSECUTIVE_THRESHOLD) return
+        } else {
+            highEntropyPacketCount[sourceIp] = 0
+            return
+        }
+
+        // COMMIT 2: cooldown — same source suppressed for 30 s after an alert
+        val now = System.currentTimeMillis()
+        val lastAlert = entropyAlertCooldown[sourceIp] ?: 0L
+        if (now - lastAlert < ENTROPY_COOLDOWN_MS) return
+        entropyAlertCooldown[sourceIp] = now
+
         when {
             protocol == "ICMP" && entropy > 6.0 -> reportAnomaly(
                 Anomaly(
@@ -357,16 +446,52 @@ object AnomalyDetector {
         if (protocol != "DNS") return
         if (payload.size < MIN_PAYLOAD_SIZE_FOR_ENTROPY) return
         val entropy = calculateEntropy(payload)
-        if (entropy > 5.5) {
-            reportAnomaly(
-                Anomaly(
-                    type = AnomalyType.DNS_TUNNELING,
-                    severity = Severity.HIGH,
-                    description = "DNS query entropy ${"%.2f".format(entropy)} suggests tunneling tool (dnscat2/iodine)",
-                    sourceIp = sourceIp,
-                    destinationIp = destinationIp
-                )
+
+        // COMMIT 3: require 3 consecutive high-entropy DNS packets; real tunneling is a stream
+        if (entropy > ENTROPY_THRESHOLD_DNS_TUNNEL) {
+            dnsHighEntropyCount[sourceIp] = (dnsHighEntropyCount[sourceIp] ?: 0) + 1
+            if ((dnsHighEntropyCount[sourceIp] ?: 0) < DNS_ENTROPY_CONSECUTIVE_THRESHOLD) return
+        } else {
+            dnsHighEntropyCount[sourceIp] = 0
+            return
+        }
+
+        // COMMIT 2: cooldown check
+        val now = System.currentTimeMillis()
+        val lastAlert = entropyAlertCooldown[sourceIp] ?: 0L
+        if (now - lastAlert < ENTROPY_COOLDOWN_MS) return
+        entropyAlertCooldown[sourceIp] = now
+
+        reportAnomaly(
+            Anomaly(
+                type = AnomalyType.DNS_TUNNELING,
+                severity = Severity.HIGH,
+                description = "DNS query entropy ${"%.2f".format(entropy)} suggests tunneling tool (dnscat2/iodine)",
+                sourceIp = sourceIp,
+                destinationIp = destinationIp
             )
+        )
+    }
+
+    // COMMIT 4: magic-byte pre-filter — skip known compressed/media formats before
+    // computing entropy, as these legitimately produce high entropy values
+    internal fun isKnownCompressedFormat(payload: ByteArray): Boolean {
+        if (payload.size < 4) return false
+        val b = payload
+        return when {
+            b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte() -> true  // JPEG
+            b[0] == 0x89.toByte() && b[1] == 0x50.toByte() -> true  // PNG
+            b[0] == 0x47.toByte() && b[1] == 0x49.toByte() -> true  // GIF
+            b[0] == 0x50.toByte() && b[1] == 0x4B.toByte() -> true  // ZIP/APK/JAR
+            b[0] == 0x1F.toByte() && b[1] == 0x8B.toByte() -> true  // GZIP
+            b[0] == 0x42.toByte() && b[1] == 0x5A.toByte() -> true  // BZIP2
+            b[0] == 0xFD.toByte() && b[1] == 0x37.toByte() -> true  // XZ
+            b[0] == 0x52.toByte() && b[1] == 0x61.toByte() -> true  // RAR
+            b[0] == 0x37.toByte() && b[1] == 0x7A.toByte() -> true  // 7ZIP
+            b[0] == 0x00.toByte() && b[1] == 0x00.toByte()
+                && b[2] == 0x00.toByte() -> true                     // MP4/MOV
+            b[0] == 0x1A.toByte() && b[1] == 0x45.toByte() -> true  // WebM/MKV
+            else -> false
         }
     }
 
@@ -391,9 +516,31 @@ object AnomalyDetector {
         arpCache[senderIp] = senderMac
     }
 
+    // === COMMIT 8: Rate extraction — feed the adaptive threshold manager ===
+
+    private fun getCurrentPortScanRate(): Int =
+        portScans.values.maxOfOrNull { it.ports.size } ?: 0
+
+    private fun getCurrentSynRate(): Int =
+        synFloodTracker.values.maxOfOrNull { it.synCount } ?: 0
+
+    private fun getCurrentConnectionRate(): Int =
+        connectionTracker.values.maxOfOrNull { it.connections } ?: 0
+
+    private fun getCurrentDnsRate(): Int = dnsQueryTracker.queries
+
+    // No per-window ARP rate counter exists; return 0 so the adaptive manager
+    // keeps the floor value for ARP thresholds
+    private fun getCurrentArpRate(): Int = 0
+
+    // === COMMIT 2: Entropy cooldown maintenance ===
+    private fun clearStaleEntropyCooldowns() {
+        val cutoff = System.currentTimeMillis() - 300_000L
+        entropyAlertCooldown.entries.removeIf { it.value < cutoff }
+    }
+
     // === Utility ===
     private fun reportAnomaly(anomaly: Anomaly) {
-        Log.w(TAG, "🚨 Anomaly detected: ${anomaly.description}")
         for (listener in anomalyListeners) listener(anomaly)
     }
 
@@ -411,7 +558,10 @@ object AnomalyDetector {
         connectionTracker.clear()
         arpCache.clear()
         dnsQueryTracker.domains.clear()
-        Log.i(TAG, "AnomalyDetector reset complete")
+        highEntropyPacketCount.clear()
+        dnsHighEntropyCount.clear()
+        entropyAlertCooldown.clear()
+        packetCount = 0
     }
 
     fun getStatistics(): Map<String, Any> = mapOf(

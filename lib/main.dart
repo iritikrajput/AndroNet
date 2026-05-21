@@ -891,6 +891,16 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   String _selectedProtocolFilter = "ALL";
   bool _autoScroll = true;
 
+  // COMMIT 11: calibration state for the 60-second adaptive learning period
+  bool _isCalibrating = false;
+  int _calibrationSecondsLeft = 60;
+  Timer? _calibrationTimer;
+
+  // COMMIT 5: Dart-side anomaly cooldown — throttles SnackBar popups only;
+  // underlying packet data is never suppressed
+  final Map<String, DateTime> _anomalyCooldown = {};
+  final _cooldownDuration = const Duration(seconds: 45);
+
   // Device and system information
   String _deviceInfo = 'Unknown';
   List<String> _networkInterfaces = [];
@@ -938,10 +948,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               PacketService._handleNativePacket(data);
             }
           case 'VPN_STARTED' ||
-                'VPN_STOPPED' ||
-                'LIBPCAP_STARTED' ||
-                'LIBPCAP_STOPPED' ||
-                'LIBPCAP_ERROR':
+              'VPN_STOPPED' ||
+              'LIBPCAP_STARTED' ||
+              'LIBPCAP_STOPPED' ||
+              'LIBPCAP_ERROR':
             PacketService._statusController.add(
               data?.toString() ?? event ?? 'Unknown Event',
             );
@@ -986,6 +996,17 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   void _handleAnomaly(Map<String, dynamic> data) {
     if (!mounted) return;
+
+    // COMMIT 5: suppress repeated SnackBar for same type+sourceIp within 45 s;
+    // the packet's anomalyScore is set before this call so data is never lost
+    final key = '${data['type']}_${data['sourceIp']}';
+    final lastShown = _anomalyCooldown[key];
+    final now = DateTime.now();
+    if (lastShown != null && now.difference(lastShown) < _cooldownDuration) {
+      return;
+    }
+    _anomalyCooldown[key] = now;
+
     final severity = data['severity']?.toString().toUpperCase() ?? 'LOW';
     final type = data['type']?.toString() ?? 'UNKNOWN';
     final description = data['description']?.toString() ?? '';
@@ -1159,6 +1180,12 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     }
   }
 
+  // COMMIT 12: query current adaptive threshold values from the Android side
+  Future<Map<String, dynamic>> _getThresholdStatus() async {
+    final result = await _channel.invokeMethod('getThresholdStatus');
+    return Map<String, dynamic>.from(result as Map);
+  }
+
   Future<void> _startCapture() async {
     try {
       setState(() => _isCapturing = true);
@@ -1207,6 +1234,25 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         Colors.green,
         Icons.play_circle_filled,
       );
+      // COMMIT 11: start 60-second calibration countdown display
+      setState(() {
+        _isCalibrating = true;
+        _calibrationSecondsLeft = 60;
+      });
+      _calibrationTimer?.cancel();
+      _calibrationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        setState(() {
+          _calibrationSecondsLeft--;
+          if (_calibrationSecondsLeft <= 0) {
+            _isCalibrating = false;
+            timer.cancel();
+          }
+        });
+      });
     } catch (e) {
       setState(() => _isCapturing = false);
       _showSnackBar(
@@ -1218,6 +1264,12 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   }
 
   Future<void> _stopCapture() async {
+    // COMMIT 11: cancel calibration immediately when capture stops
+    _calibrationTimer?.cancel();
+    setState(() {
+      _isCalibrating = false;
+      _calibrationSecondsLeft = 60;
+    });
     try {
       _showSnackBar(
         "⏹️ Stopping capture...",
@@ -1579,12 +1631,18 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: _isCapturing
-            ? Colors.green.withValues(alpha: 0.1)
-            : Colors.grey.withValues(alpha: 0.1),
+        color: (_isCalibrating && _isCapturing)
+            ? Colors.amber.withValues(alpha: 0.1)
+            : _isCapturing
+                ? Colors.green.withValues(alpha: 0.1)
+                : Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: _isCapturing ? Colors.green : Colors.grey,
+          color: (_isCalibrating && _isCapturing)
+              ? Colors.amber
+              : _isCapturing
+                  ? Colors.green
+                  : Colors.grey,
           width: 1,
         ),
       ),
@@ -1600,7 +1658,11 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: _isCapturing ? Colors.green : Colors.grey,
+                    color: (_isCalibrating && _isCapturing)
+                        ? Colors.amber
+                        : _isCapturing
+                            ? Colors.green
+                            : Colors.grey,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -1609,11 +1671,19 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
           ),
           const SizedBox(width: 6),
           Text(
-            _isCapturing ? 'LIVE' : 'OFF',
+            (_isCalibrating && _isCapturing)
+                ? 'CALIBRATING... (${_calibrationSecondsLeft}s)'
+                : _isCapturing
+                    ? 'LIVE'
+                    : 'OFF',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: _isCapturing ? Colors.green : Colors.grey,
+              color: (_isCalibrating && _isCapturing)
+                  ? Colors.amber
+                  : _isCapturing
+                      ? Colors.green
+                      : Colors.grey,
             ),
           ),
         ],
@@ -3728,12 +3798,152 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               ),
               contentPadding: EdgeInsets.zero,
             ),
+            // COMMIT 13: adaptive threshold debug panel
+            ListTile(
+              title: const Text('Adaptive Thresholds'),
+              subtitle: const Text('View current detection baselines'),
+              trailing: const Icon(Icons.chevron_right),
+              contentPadding: EdgeInsets.zero,
+              onTap: () {
+                Navigator.pop(context);
+                _showAdaptiveThresholdsPanel();
+              },
+            ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // COMMIT 13: adaptive threshold debug panel — shows live baselines and current
+  // threshold values fetched from the Android AdaptiveThresholdManager
+  Future<void> _showAdaptiveThresholdsPanel() async {
+    Map<String, dynamic> status = {};
+    try {
+      status = await _getThresholdStatus();
+    } catch (e) {
+      debugPrint('Could not fetch threshold status: $e');
+    }
+    if (!mounted) return;
+
+    final thresholds =
+        (status['thresholds'] as Map?)?.cast<String, dynamic>() ?? {};
+    final baselines =
+        (status['baselines'] as Map?)?.cast<String, dynamic>() ?? {};
+    final isLearning = status['isLearning'] == true;
+    final learningComplete = status['learningComplete'] == true;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.tune, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Adaptive Thresholds'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isLearning
+                      ? Colors.amber.withValues(alpha: 0.1)
+                      : learningComplete
+                          ? Colors.green.withValues(alpha: 0.1)
+                          : Colors.grey.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  isLearning
+                      ? 'Status: Learning'
+                      : learningComplete
+                          ? 'Status: Monitoring'
+                          : 'Status: Pending (start a capture)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isLearning
+                        ? Colors.amber.shade700
+                        : learningComplete
+                            ? Colors.green.shade700
+                            : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildThresholdRow(
+                  'Port Scan',
+                  thresholds['portScan'],
+                  baselines['portScan']),
+              _buildThresholdRow(
+                  'SYN Flood',
+                  thresholds['synFlood'],
+                  baselines['synFlood']),
+              _buildThresholdRow(
+                  'Connection Rate',
+                  thresholds['connectionRate'],
+                  baselines['connectionRate']),
+              _buildThresholdRow(
+                  'DNS Query Rate',
+                  thresholds['dnsQueryRate'],
+                  baselines['dnsRate']),
+              _buildThresholdRow(
+                  'ARP Rate',
+                  thresholds['arpRate'],
+                  baselines['arpRate']),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThresholdRow(String label, dynamic threshold, dynamic baseline) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'threshold: ${threshold ?? "—"}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                if (baseline != null)
+                  Text(
+                    'baseline: ${baseline is double ? baseline.toStringAsFixed(1) : baseline}',
+                    style: TextStyle(
+                        fontSize: 11, color: Colors.grey.shade600),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -3845,6 +4055,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     _statsSub?.cancel();
     _anomalySub?.cancel();
     _debounceTimer?.cancel();
+    _calibrationTimer?.cancel();
     _tabController.dispose();
     _pulseController.dispose();
     super.dispose();

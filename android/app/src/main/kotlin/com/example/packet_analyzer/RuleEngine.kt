@@ -334,7 +334,6 @@ object RuleEngine {
             )
         )
 
-        Log.i(TAG, "Loaded ${rules.size} detection rules")
     }
 
     /**
