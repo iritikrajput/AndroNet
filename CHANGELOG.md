@@ -7,13 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-###  Features
+### Added
+- Dual capture mode: VPN (unrooted) and libpcap (NetHunter/root)
+- 65+ protocol detection via deep packet inspection
+- Real-time anomaly detection: port scan, SYN flood, connection flood, DNS tunneling, ARP spoofing
+- Shannon entropy analysis for covert channel and exfiltration detection
+- ICMP covert channel detection (icmptunnel, ptunnel signatures)
+- Real-time SnackBar alerts with severity levels: CRITICAL, HIGH, MEDIUM, LOW
+- PCAP export with microsecond timestamps
+- Traffic statistics dashboard
+- Anomaly score per packet (0.0–1.0)
+- Entropy score badge on suspicious packets
+- GitHub Actions CI/CD pipeline for automated release APK builds
 
-###  Bug Fixes
-
-###  Documentation
-
-###  Maintenance
+### Build
+- Flutter 3.44.0 stable
+- AGP 8.7.3, Kotlin 2.1.0, Gradle 8.10.2
+- NDK 28.2.13676358
+- compileSdk/targetSdk 36
+- 16KB page alignment for Android 15+ compatibility
 
 ## [2.0.0] - 2025-01-04
 
