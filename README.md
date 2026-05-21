@@ -89,6 +89,7 @@ Real-time threat detection with 5 built-in algorithms:
 3. **Connection Flooding** - Threshold: 50+ connections/second (Severity: HIGH)
 4. **DNS Tunneling** - Detects excessive queries and long domain names (Severity: MEDIUM)
 5. **ARP Spoofing** - Monitors IP-to-MAC mapping changes (Severity: CRITICAL)
+- Real-time SnackBar alerts in the Flutter UI showing severity, type, source IP, and description
 
 ###  **Traffic Statistics & Analytics**
 - Real-time metrics (packets/sec, bytes/sec, connections)
