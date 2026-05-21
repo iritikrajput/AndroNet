@@ -24,8 +24,8 @@ if (flutterVersionName == null) {
 
 android {
     namespace 'com.example.packet_analyzer'
-    compileSdk 35
-    ndkVersion flutter.ndkVersion
+    compileSdk 36
+    ndkVersion "28.2.13433566"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -43,8 +43,8 @@ android {
 
     defaultConfig {
         applicationId "com.example.packet_analyzer"
-        minSdkVersion flutter.minSdkVersion
-        targetSdkVersion 35
+        minSdkVersion 24
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
 
@@ -64,6 +64,12 @@ android {
         cmake {
             path "CMakeLists.txt"
             version "3.22.1"
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 
