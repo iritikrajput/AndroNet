@@ -43,10 +43,11 @@ android {
 
     defaultConfig {
         applicationId "com.example.packet_analyzer"
-        minSdkVersion 24
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        multiDexEnabled true
 
         externalNativeBuild {
             cmake {
@@ -72,6 +73,12 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.debug
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
         }
     }
 }
@@ -88,6 +95,7 @@ repositories {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation 'androidx.multidex:multidex:2.0.1'
 
     // Unit test dependencies
     testImplementation 'junit:junit:4.13.2'

@@ -3,6 +3,7 @@ package com.example.packet_analyzer
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.log2
 
 /**
@@ -55,7 +56,7 @@ object AnomalyDetector {
     private const val DNS_ENTROPY_CONSECUTIVE_THRESHOLD = 3
 
     // COMMIT 2: packet counter drives periodic cooldown map cleanup
-    private var packetCount = 0
+    private val packetCount = AtomicInteger(0)
 
     // COMMIT 7: adaptive thresholds replace all hard-coded comparison values
     val adaptiveThresholds = AdaptiveThresholdManager()
@@ -93,12 +94,12 @@ object AnomalyDetector {
         val timingPatterns: MutableMap<String, MutableList<Long>> = mutableMapOf()
     )
 
-    // Trackers
+    // Trackers — ConcurrentHashMap because analyzePacket runs on IO/Default coroutines
     private val anomalyListeners = CopyOnWriteArrayList<(Anomaly) -> Unit>()
-    private val portScans = mutableMapOf<String, PortScanTracker>()
-    private val synFloodTracker = mutableMapOf<String, SynFloodTracker>()
-    private val connectionTracker = mutableMapOf<String, ConnectionRateTracker>()
-    private val arpCache = mutableMapOf<String, String>()
+    private val portScans = ConcurrentHashMap<String, PortScanTracker>()
+    private val synFloodTracker = ConcurrentHashMap<String, SynFloodTracker>()
+    private val connectionTracker = ConcurrentHashMap<String, ConnectionRateTracker>()
+    private val arpCache = ConcurrentHashMap<String, String>()
     private val dnsQueryTracker = DnsQueryTracker()
 
     data class Anomaly(
@@ -193,7 +194,7 @@ object AnomalyDetector {
             }
 
             // COMMIT 2: periodic cleanup of the cooldown map to prevent unbounded growth
-            if (++packetCount % 1000 == 0) clearStaleEntropyCooldowns()
+            if (packetCount.incrementAndGet() % 1000 == 0) clearStaleEntropyCooldowns()
 
             val sourceIp = packetInfo["sourceIp"] as? String ?: return
             val destIp = packetInfo["destinationIp"] as? String ?: return
@@ -561,7 +562,7 @@ object AnomalyDetector {
         highEntropyPacketCount.clear()
         dnsHighEntropyCount.clear()
         entropyAlertCooldown.clear()
-        packetCount = 0
+        packetCount.set(0)
     }
 
     fun getStatistics(): Map<String, Any> = mapOf(

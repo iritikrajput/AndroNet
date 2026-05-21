@@ -1,7 +1,11 @@
 package com.example.packet_analyzer
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import io.flutter.plugin.common.EventChannel
@@ -54,6 +58,12 @@ class ZdtunVpnService : VpnService() {
     private var zdtunInitialized = false
     private val instanceHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
+    override fun onCreate() {
+        super.onCreate()
+        Log.i(TAG, "ZdtunVpnService created")
+        createNotificationChannel()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "ZdtunVpnService onStartCommand: action=$action")
@@ -76,7 +86,43 @@ class ZdtunVpnService : VpnService() {
         }
     }
 
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "andronet_capture",
+                "AndroNet Capture",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "VPN packet capture service"
+            }
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+    }
+
+    private fun buildNotification(): Notification {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, "andronet_capture")
+                .setContentTitle("AndroNet VPN Active")
+                .setContentText("Capturing network traffic")
+                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setOngoing(true)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setContentTitle("AndroNet VPN Active")
+                .setContentText("Capturing network traffic")
+                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setOngoing(true)
+                .build()
+        }
+    }
+
     private fun startVpnService() {
+        // Must call startForeground() within 5 seconds on Android 8+ or the OS kills the service
+        startForeground(1, buildNotification())
+
         try {
             // Establish VPN
             val builder = Builder()
@@ -160,8 +206,23 @@ class ZdtunVpnService : VpnService() {
 
             Log.i(TAG, "ZdtunVpnService started successfully")
 
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "❌ Native library load failure: ${e.message}", e)
+            mainHandler.post {
+                methodChannel?.invokeMethod(
+                    "onNativeLibraryError",
+                    mapOf("error" to (e.message ?: "Native library failed to load"))
+                )
+            }
+            stopSelf()
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting VPN: ${e.message}", e)
+            Log.e(TAG, "❌ Error starting VPN: ${e.message}", e)
+            mainHandler.post {
+                methodChannel?.invokeMethod(
+                    "onCaptureError",
+                    mapOf("error" to (e.message ?: "Unknown error starting VPN"))
+                )
+            }
             stopSelf()
         }
     }
@@ -480,6 +541,24 @@ class ZdtunVpnService : VpnService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error posting to main thread: ${e.message}")
         }
+    }
+
+    override fun onRevoke() {
+        Log.w(TAG, "VPN permission revoked by system")
+        try {
+            isRunning = false
+            serviceScope.cancel()
+            if (zdtunInitialized) {
+                ZdtunVpn.nativeCleanup()
+                zdtunInitialized = false
+            }
+            vpnInterface?.close()
+            vpnInterface = null
+            stopForeground(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during revoke cleanup: ${e.message}", e)
+        }
+        super.onRevoke()
     }
 
     override fun onDestroy() {

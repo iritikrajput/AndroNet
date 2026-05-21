@@ -43,11 +43,28 @@ class NetHunterService : Service() {
         createNotificationChannel()
     }
 
+    private fun isRooted(): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+            val result = process.inputStream.bufferedReader().readLine() ?: ""
+            process.destroy()
+            result.contains("uid=0")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
 
         when (action) {
             "START_CAPTURE" -> {
+                if (!isRooted()) {
+                    Log.w(TAG, "Root not available — NetHunter mode unavailable")
+                    onStatusUpdate("NetHunter mode requires root. Use VPN mode instead.")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 val iface = intent.getStringExtra("interface") ?: "any"
                 startLibpcapCapture(iface)
             }
