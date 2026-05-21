@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:andronet/main.dart';
+import 'package:packet_analyzer/main.dart';
 
 void main() {
   testWidgets('Packet Analyzer app smoke test', (WidgetTester tester) async {
