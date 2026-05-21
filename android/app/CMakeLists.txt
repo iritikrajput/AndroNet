@@ -41,6 +41,8 @@ target_link_libraries(
     log
 )
 
+target_link_options(zdtun_vpn PRIVATE "-Wl,-z,max-page-size=16384")
+
 # ============================================
 # ALWAYS BUILD: PCAP writer (no libpcap dependency)
 # ============================================
@@ -54,6 +56,8 @@ target_link_libraries(
     pcap_writer
     log
 )
+
+target_link_options(pcap_writer PRIVATE "-Wl,-z,max-page-size=16384")
 
 # ============================================
 # OPTIONAL: Libpcap capture (only for rooted devices with libpcap)
@@ -80,6 +84,8 @@ if(LIBPCAP_LIB)
         ${LIBPCAP_LIB}
         log
     )
+
+    target_link_options(pcap_capture PRIVATE "-Wl,-z,max-page-size=16384")
 else()
     message(WARNING "⚠️  libpcap NOT found - Skipping pcap_capture library")
     message(WARNING "    VPN mode will work normally on unrooted devices")

@@ -5,8 +5,10 @@
     <!-- Network permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- VPN permission (⚡ Required for VpnService) -->
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
@@ -32,11 +34,7 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
     <application
-<<<<<<< HEAD
-        android:label="AndoNet"
-=======
         android:label="AndroNet"
->>>>>>> 630df78 (Update app name to AndroNet in AndroidManifest)
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:extractNativeLibs="true"
