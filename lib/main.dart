@@ -163,6 +163,19 @@ void initPacketListener() {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('ANDRONET FLUTTER ERROR: ${details.exception}');
+    debugPrint('ANDRONET STACK: ${details.stack}');
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('ANDRONET PLATFORM ERROR: $error');
+    debugPrint('ANDRONET STACK: $stack');
+    return true;
+  };
+
   initPacketListener();
   PacketService.initialize();
   runApp(
@@ -470,16 +483,16 @@ class NetworkMetrics {
   });
 
   factory NetworkMetrics.fromMap(Map<String, dynamic> map) {
-    int _toInt(dynamic v) =>
+    int toInt(dynamic v) =>
         (v is int) ? v : int.tryParse(v?.toString() ?? "0") ?? 0;
-    double _toDouble(dynamic v) =>
+    double toDouble(dynamic v) =>
         (v is double) ? v : double.tryParse(v?.toString() ?? "0") ?? 0;
 
     return NetworkMetrics(
-      totalPackets: _toInt(map['totalPackets']),
-      packetsPerSecond: _toDouble(map['packetsPerSecond']),
-      totalSessions: _toInt(map['totalSessions']),
-      dataRate: _toDouble(map['dataRate']),
+      totalPackets: toInt(map['totalPackets']),
+      packetsPerSecond: toDouble(map['packetsPerSecond']),
+      totalSessions: toInt(map['totalSessions']),
+      dataRate: toDouble(map['dataRate']),
     );
   }
 }
@@ -879,6 +892,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     with TickerProviderStateMixin {
   // Core state
   bool _isCapturing = false;
+  bool _isCaptureStarting = false;  // guard against double-tap while transitioning
   bool _isRooted = false;
   bool _vpnPermissionGranted = false;
   CaptureMode _selectedCaptureMode = CaptureMode.vpn;
@@ -933,65 +947,110 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   }
 
   Future<dynamic> _onMethodCall(MethodCall call) async {
-    switch (call.method) {
-      case 'onPacketReceived':
-        PacketService._handleNativePacket(
-          Map<String, dynamic>.from(call.arguments as Map),
-        );
-      case 'onPacketEvent':
-        final eventData = Map<String, dynamic>.from(call.arguments as Map);
-        final event = eventData['event'] as String?;
-        final data = eventData['data'];
-        switch (event) {
-          case 'PACKET_CAPTURED':
-            if (data is Map<String, dynamic>) {
-              PacketService._handleNativePacket(data);
-            }
-          case 'VPN_STARTED' ||
-              'VPN_STOPPED' ||
-              'LIBPCAP_STARTED' ||
-              'LIBPCAP_STOPPED' ||
-              'LIBPCAP_ERROR':
-            PacketService._statusController.add(
-              data?.toString() ?? event ?? 'Unknown Event',
+    try {
+      switch (call.method) {
+        case 'onPacketReceived':
+          PacketService._handleNativePacket(
+            Map<String, dynamic>.from(call.arguments as Map),
+          );
+        case 'onPacketEvent':
+          final eventData = Map<String, dynamic>.from(call.arguments as Map);
+          final event = eventData['event'] as String?;
+          final data = eventData['data'];
+          switch (event) {
+            case 'PACKET_CAPTURED':
+              if (data is Map<String, dynamic>) {
+                PacketService._handleNativePacket(data);
+              }
+            case 'VPN_STARTED' ||
+                'VPN_STOPPED' ||
+                'LIBPCAP_STARTED' ||
+                'LIBPCAP_STOPPED' ||
+                'LIBPCAP_ERROR':
+              PacketService._statusController.add(
+                data?.toString() ?? event ?? 'Unknown Event',
+              );
+          }
+        case 'onStatsUpdated':
+          final stats = call.arguments;
+          if (stats is String) {
+            try {
+              PacketService._handleNativeStats(jsonDecode(stats));
+            } catch (_) {}
+          } else {
+            PacketService._handleNativeStats(stats);
+          }
+        case 'onStatusChanged':
+          final status = call.arguments;
+          if (status is Map<String, dynamic>) {
+            PacketService._handleNativeStatus(status);
+          } else if (status is String) {
+            PacketService._handleNativeStatus({'status': status});
+          }
+        case 'onSessionsUpdated':
+          PacketService._handleNativeSessions(call.arguments);
+        case 'onMetricsUpdated':
+          if (call.arguments is Map) {
+            PacketService._handleNativeMetrics(
+              Map<String, dynamic>.from(call.arguments as Map),
             );
-        }
-      case 'onStatsUpdated':
-        final stats = call.arguments;
-        if (stats is String) {
-          try {
-            PacketService._handleNativeStats(jsonDecode(stats));
-          } catch (_) {}
-        } else {
-          PacketService._handleNativeStats(stats);
-        }
-      case 'onStatusChanged':
-        final status = call.arguments;
-        if (status is Map<String, dynamic>) {
-          PacketService._handleNativeStatus(status);
-        } else if (status is String) {
-          PacketService._handleNativeStatus({'status': status});
-        }
-      case 'onSessionsUpdated':
-        PacketService._handleNativeSessions(call.arguments);
-      case 'onMetricsUpdated':
-        if (call.arguments is Map) {
-          PacketService._handleNativeMetrics(
-            Map<String, dynamic>.from(call.arguments as Map),
+          }
+        case 'onDashboardUpdate':
+          if (call.arguments is Map) {
+            PacketService._handleDashboardUpdate(
+              Map<String, dynamic>.from(call.arguments as Map),
+            );
+          }
+        case 'onAnomalyDetected':
+          if (call.arguments is Map) {
+            _handleAnomaly(Map<String, dynamic>.from(call.arguments as Map));
+          }
+        case 'onNativeLibraryError':
+          final error =
+              (call.arguments as Map?)?['error'] as String? ?? 'Unknown error';
+          _showErrorDialog(
+            title: 'Native Library Error',
+            message:
+                'Failed to load capture libraries.\n\n$error\n\nThe app may not function correctly.',
           );
-        }
-      case 'onDashboardUpdate':
-        if (call.arguments is Map) {
-          PacketService._handleDashboardUpdate(
-            Map<String, dynamic>.from(call.arguments as Map),
-          );
-        }
-      case 'onAnomalyDetected':
-        // Handle real-time anomaly alerts from native anomaly detector
-        if (call.arguments is Map) {
-          _handleAnomaly(Map<String, dynamic>.from(call.arguments as Map));
-        }
+        case 'onCaptureError':
+          final error =
+              (call.arguments as Map?)?['error'] as String? ?? 'Unknown error';
+          if (mounted) setState(() => _isCapturing = false);
+          _showErrorDialog(title: 'Capture Failed', message: error);
+        case 'onVpnPermissionGranted':
+          if (mounted) {
+            setState(() {
+              _isCapturing = true;
+              _vpnPermissionGranted = true;
+            });
+            _showSnackBar(
+              'VPN permission granted — capture starting',
+              Colors.green,
+              Icons.vpn_lock,
+            );
+          }
+      }
+    } catch (e, stack) {
+      debugPrint('ANDRONET HANDLER ERROR: $e\n$stack');
     }
+  }
+
+  void _showErrorDialog({required String title, required String message}) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _handleAnomaly(Map<String, dynamic> data) {
@@ -1182,13 +1241,26 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   // COMMIT 12: query current adaptive threshold values from the Android side
   Future<Map<String, dynamic>> _getThresholdStatus() async {
-    final result = await _channel.invokeMethod('getThresholdStatus');
-    return Map<String, dynamic>.from(result as Map);
+    try {
+      final result = await _channel.invokeMethod('getThresholdStatus');
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return {};
+    } on PlatformException catch (e) {
+      debugPrint('ANDRONET CHANNEL ERROR: ${e.code} — ${e.message}');
+      return {};
+    } catch (e) {
+      debugPrint('ANDRONET UNEXPECTED ERROR: $e');
+      return {};
+    }
   }
 
   Future<void> _startCapture() async {
+    if (_isCaptureStarting) return;
     try {
-      setState(() => _isCapturing = true);
+      setState(() {
+        _isCapturing = true;
+        _isCaptureStarting = true;
+      });
 
       switch (_selectedCaptureMode) {
         case CaptureMode.vpn:
@@ -1196,7 +1268,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             final permitted = await VpnController.prepareVpn();
             if (!permitted) {
               _showVpnPermissionDialog();
-              setState(() => _isCapturing = false);
+              setState(() {
+                _isCapturing = false;
+                _isCaptureStarting = false;
+              });
               return;
             }
             _vpnPermissionGranted = true;
@@ -1210,7 +1285,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               Colors.red,
               Icons.error_outline,
             );
-            setState(() => _isCapturing = false);
+            setState(() {
+              _isCapturing = false;
+              _isCaptureStarting = false;
+            });
             return;
           }
           await VpnController.startLibpcapCapture();
@@ -1220,7 +1298,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             final permitted = await VpnController.prepareVpn();
             if (!permitted) {
               _showVpnPermissionDialog();
-              setState(() => _isCapturing = false);
+              setState(() {
+                _isCapturing = false;
+                _isCaptureStarting = false;
+              });
               return;
             }
             _vpnPermissionGranted = true;
@@ -1234,6 +1315,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         Colors.green,
         Icons.play_circle_filled,
       );
+      setState(() => _isCaptureStarting = false);
       // COMMIT 11: start 60-second calibration countdown display
       setState(() {
         _isCalibrating = true;
@@ -1254,7 +1336,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         });
       });
     } catch (e) {
-      setState(() => _isCapturing = false);
+      setState(() {
+        _isCapturing = false;
+        _isCaptureStarting = false;
+      });
       _showSnackBar(
         "Error starting capture: ${e.toString()}",
         Colors.red,
@@ -1264,11 +1349,13 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   }
 
   Future<void> _stopCapture() async {
+    if (_isCaptureStarting) return;
     // COMMIT 11: cancel calibration immediately when capture stops
     _calibrationTimer?.cancel();
     setState(() {
       _isCalibrating = false;
       _calibrationSecondsLeft = 60;
+      _isCaptureStarting = true;
     });
     try {
       _showSnackBar(
@@ -1291,14 +1378,20 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
       await Future.delayed(const Duration(milliseconds: 500));
 
-      setState(() => _isCapturing = false);
+      setState(() {
+        _isCapturing = false;
+        _isCaptureStarting = false;
+      });
       _showSnackBar(
         "✅ Capture stopped successfully",
         Colors.green,
         Icons.check_circle,
       );
     } catch (e) {
-      setState(() => _isCapturing = false);
+      setState(() {
+        _isCapturing = false;
+        _isCaptureStarting = false;
+      });
       _showSnackBar(
         "Error stopping capture: ${e.toString()}",
         Colors.red,
@@ -2058,9 +2151,15 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             reverse: _autoScroll,
             itemCount: packets.length,
             itemBuilder: (context, index) {
-              final packet =
-                  packets[_autoScroll ? (packets.length - 1 - index) : index];
-              return EnhancedPacketCard(packet: packet);
+              try {
+                if (index >= packets.length) return const SizedBox.shrink();
+                final packet =
+                    packets[_autoScroll ? (packets.length - 1 - index) : index];
+                return EnhancedPacketCard(packet: packet);
+              } catch (e, stack) {
+                debugPrint('ANDRONET PACKET RENDER ERROR: $e\n$stack');
+                return const SizedBox.shrink();
+              }
             },
           ),
         ),
@@ -3532,18 +3631,31 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   Widget _buildEnhancedFAB() {
     return FloatingActionButton.extended(
-      onPressed: _toggleCapture,
-      icon: AnimatedBuilder(
-        animation: _pulseAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _isCapturing ? _pulseAnimation.value : 1.0,
-            child: Icon(_isCapturing ? Icons.stop : Icons.play_arrow),
-          );
-        },
+      onPressed: _isCaptureStarting ? null : _toggleCapture,
+      icon: _isCaptureStarting
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : AnimatedBuilder(
+              animation: _pulseAnimation,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _isCapturing ? _pulseAnimation.value : 1.0,
+                  child: Icon(_isCapturing ? Icons.stop : Icons.play_arrow),
+                );
+              },
+            ),
+      label: Text(
+        _isCaptureStarting ? 'Wait...' : (_isCapturing ? 'Stop' : 'Start'),
       ),
-      label: Text(_isCapturing ? 'Stop' : 'Start'),
-      backgroundColor: _isCapturing ? Colors.red : Colors.green,
+      backgroundColor: _isCaptureStarting
+          ? Colors.grey
+          : (_isCapturing ? Colors.red : Colors.green),
       foregroundColor: Colors.white,
     );
   }

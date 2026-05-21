@@ -1,5 +1,6 @@
 package com.example.packet_analyzer
 
+import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import android.os.Handler
@@ -16,6 +17,7 @@ import io.flutter.plugin.common.EventChannel
 class MainActivity : FlutterFragmentActivity() {
     private val CHANNEL = "packet_analyzer"
     private val VPN_REQUEST_CODE = 1001
+    private var pendingVpnAction: String? = null  // "startVpn" or "startCapture"
     private var biometricPrompt: BiometricPrompt? = null
     private var pendingBiometricResult: MethodChannel.Result? = null
     // mainHandler ensures anomaly notifications are posted on the main thread for UI updates
@@ -96,49 +98,75 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 }
                 "startVpn" -> {
-                    // Use ZdtunVpnService with zdtun library
-                    val intent = Intent(this, ZdtunVpnService::class.java)
-                    // Register anomaly listener before starting capture to ensure alerts are sent to Flutter
-                    setupAnomalyListener()
-                    startService(intent)
-
-                    // Start anomaly detection when VPN starts
-                    startAnomalyDetection()
-                    
-                    result.success("VPN started with zdtun packet forwarding and anomaly detection")
+                    try {
+                        val vpnIntent = VpnService.prepare(this)
+                        if (vpnIntent != null) {
+                            pendingVpnAction = "startVpn"
+                            startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
+                            result.success("VPN permission requested")
+                        } else {
+                            setupAnomalyListener()
+                            val intent = Intent(this, ZdtunVpnService::class.java)
+                            startService(intent)
+                            startAnomalyDetection()
+                            result.success("VPN started with zdtun packet forwarding and anomaly detection")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("AndroNet", "VPN start failed: ${e.message}", e)
+                        mainHandler.post {
+                            methodChannel.invokeMethod("onCaptureError",
+                                mapOf("error" to (e.message ?: "Failed to start VPN")))
+                        }
+                        result.error("VPN_ERROR", e.message, null)
+                    }
                 }
                 "stopVpn" -> {
-                    // Stop ZdtunVpnService properly
-                    val intent = Intent(this, ZdtunVpnService::class.java)
-                    intent.action = "STOP_VPN"
-                    startService(intent) // Send stop command to service
-                    
-                    // Stop anomaly detection when VPN stops
-                    stopAnomalyDetection()
-                    
-                    result.success("VPN stop requested")
+                    try {
+                        val intent = Intent(this, ZdtunVpnService::class.java)
+                        intent.action = "STOP_VPN"
+                        startService(intent)
+                        stopAnomalyDetection()
+                        result.success("VPN stop requested")
+                    } catch (e: Exception) {
+                        Log.e("AndroNet", "VPN stop failed: ${e.message}", e)
+                        result.error("VPN_ERROR", e.message, null)
+                    }
                 }
                 "startCapture" -> {
-                    val intent = Intent(this, CaptureService::class.java)
-                    intent.action = "START_CAPTURE"
-                    // Register anomaly listener before starting capture to ensure alerts are sent to Flutter
-                    setupAnomalyListener()
-                    startService(intent)
-
-                    // Start anomaly detection for enhanced capture
-                    startAnomalyDetection()
-                    
-                    result.success("Enhanced capture started with anomaly detection")
+                    try {
+                        val vpnIntent = VpnService.prepare(this)
+                        if (vpnIntent != null) {
+                            pendingVpnAction = "startCapture"
+                            startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
+                            result.success("VPN permission requested")
+                        } else {
+                            setupAnomalyListener()
+                            val intent = Intent(this, CaptureService::class.java)
+                            intent.action = "START_CAPTURE"
+                            startService(intent)
+                            startAnomalyDetection()
+                            result.success("Enhanced capture started with anomaly detection")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("AndroNet", "Capture start failed: ${e.message}", e)
+                        mainHandler.post {
+                            methodChannel.invokeMethod("onCaptureError",
+                                mapOf("error" to (e.message ?: "Failed to start capture")))
+                        }
+                        result.error("CAPTURE_ERROR", e.message, null)
+                    }
                 }
                 "stopCapture" -> {
-                    val intent = Intent(this, CaptureService::class.java)
-                    intent.action = "STOP_CAPTURE"
-                    startService(intent)
-                    
-                    // Stop anomaly detection
-                    stopAnomalyDetection()
-                    
-                    result.success("Enhanced capture stopped")
+                    try {
+                        val intent = Intent(this, CaptureService::class.java)
+                        intent.action = "STOP_CAPTURE"
+                        startService(intent)
+                        stopAnomalyDetection()
+                        result.success("Enhanced capture stopped")
+                    } catch (e: Exception) {
+                        Log.e("AndroNet", "Capture stop failed: ${e.message}", e)
+                        result.error("CAPTURE_ERROR", e.message, null)
+                    }
                 }
                 "checkBiometricAvailability" -> {
                     val biometricManager = BiometricManager.from(this)
@@ -480,9 +508,54 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_REQUEST_CODE) {
+            if (resultCode == Activity.RESULT_OK) {
+                Log.i("AndroNet", "VPN permission granted — starting pending action: $pendingVpnAction")
+                try {
+                    when (pendingVpnAction) {
+                        "startVpn" -> {
+                            setupAnomalyListener()
+                            startService(Intent(this, ZdtunVpnService::class.java))
+                            startAnomalyDetection()
+                            mainHandler.post {
+                                methodChannel.invokeMethod("onVpnPermissionGranted", null)
+                            }
+                        }
+                        "startCapture" -> {
+                            setupAnomalyListener()
+                            val intent = Intent(this, CaptureService::class.java)
+                            intent.action = "START_CAPTURE"
+                            startService(intent)
+                            startAnomalyDetection()
+                            mainHandler.post {
+                                methodChannel.invokeMethod("onVpnPermissionGranted", null)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AndroNet", "Failed to start service after VPN grant: ${e.message}", e)
+                    mainHandler.post {
+                        methodChannel.invokeMethod("onCaptureError",
+                            mapOf("error" to (e.message ?: "Failed to start after permission grant")))
+                    }
+                } finally {
+                    pendingVpnAction = null
+                }
+            } else {
+                Log.w("AndroNet", "VPN permission denied by user")
+                pendingVpnAction = null
+                mainHandler.post {
+                    methodChannel.invokeMethod("onCaptureError",
+                        mapOf("error" to "VPN permission denied by user"))
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        // Clean up anomaly detection on app destruction
         stopAnomalyDetection()
         AnomalyDetector.removeAnomalyListener(::onAnomalyDetected)
         Log.i("MainActivity", "🚨 Anomaly detection cleaned up")

@@ -1,9 +1,19 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.22)
 
 project(packet_capture_native)
 
+# Global 16 KB page-size alignment — required for Android 15+
+add_link_options("-Wl,-z,max-page-size=16384")
+
 # Set C standard
 set(CMAKE_C_STANDARD 11)
+
+# Release optimizations (only applied when Gradle passes -DCMAKE_BUILD_TYPE=Release)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
 # Include directories
 include_directories(

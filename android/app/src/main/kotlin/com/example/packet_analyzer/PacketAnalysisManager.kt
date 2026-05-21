@@ -6,6 +6,8 @@ import android.util.Log
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Packet Analysis Manager - Phase 2 Integration
@@ -14,14 +16,14 @@ import java.io.File
 class PacketAnalysisManager(private val context: Context) {
     private val TAG = "PacketAnalysisManager"
 
-    private var isAnalyzing = false
-    private var isPcapExporting = false
+    @Volatile private var isAnalyzing = false
+    @Volatile private var isPcapExporting = false
     private val managerScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // Statistics tracking
-    private var lastStatsUpdate = 0L
-    private var packetsLastSecond = 0
-    private var bytesLastSecond = 0L
+    @Volatile private var lastStatsUpdate = 0L
+    private val packetsLastSecond = AtomicInteger(0)
+    private val bytesLastSecond = AtomicLong(0L)
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -164,8 +166,8 @@ class PacketAnalysisManager(private val context: Context) {
 
             // 5. Track for bandwidth calculation
             val size = (packetInfo["size"] as? Int)?.toLong() ?: 0L
-            packetsLastSecond++
-            bytesLastSecond += size
+            packetsLastSecond.incrementAndGet()
+            bytesLastSecond.addAndGet(size)
 
             return finalPacket
 
@@ -300,12 +302,8 @@ class PacketAnalysisManager(private val context: Context) {
 
             try {
                 // Record bandwidth and packet rate samples
-                TrafficStatistics.recordBandwidthSample(bytesLastSecond)
-                TrafficStatistics.recordPacketRateSample(packetsLastSecond)
-
-                // Reset counters
-                packetsLastSecond = 0
-                bytesLastSecond = 0
+                TrafficStatistics.recordBandwidthSample(bytesLastSecond.getAndSet(0L))
+                TrafficStatistics.recordPacketRateSample(packetsLastSecond.getAndSet(0))
 
                 // Send periodic stats update to Flutter (every 5 seconds)
                 if (System.currentTimeMillis() - lastStatsUpdate > 5000) {

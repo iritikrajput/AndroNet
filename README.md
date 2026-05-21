@@ -342,15 +342,71 @@ flutter install
 
 ##  Troubleshooting
 
-**VPN mode not working**
-- Check VPN permission granted
-- Restart app
-- Check logs: `adb logcat | grep ZdtunVpn`
+### Quick log collection
 
-**Libpcap mode issues**
-- Install libpcap: `su -c "apt install libpcap-dev"`
-- Verify root: `su -c 'id'`
-- Rebuild app
+```powershell
+# Save the last crash log from a connected device
+.\scripts\get-crash-log.ps1
+
+# Stream live logs
+.\scripts\get-crash-log.ps1 -Live
+```
+
+### APK fails to install
+
+| Symptom | Fix |
+|---------|-----|
+| `INSTALL_FAILED_NO_MATCHING_ABIS` | Use the correct APK: `app-arm64-v8a-release.apk` for 64-bit devices, `app-armeabi-v7a-release.apk` for 32-bit |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | Uninstall the existing version: `adb uninstall com.example.packet_analyzer` |
+| App not appearing after sideload | Enable "Install from unknown sources" for your file manager app |
+| `INSTALL_PARSE_FAILED_NO_CERTIFICATES` | APK was not signed — build with `flutter build apk` instead of assembling raw |
+
+### App crashes on launch (icon tap)
+
+1. Run `.\scripts\get-crash-log.ps1` and look for `FATAL EXCEPTION` or `AndroidRuntime`.
+2. Common causes:
+   - **`UnsatisfiedLinkError`** — native `.so` missing for your ABI. Download the correct APK variant.
+   - **`ClassNotFoundException`** — MultiDex not initialised. Ensure `minSdkVersion ≥ 23`; reinstall cleanly.
+   - **Flutter rendering crash** — check for `ANDRONET FLUTTER ERROR` in the log.
+
+### Capture won't start / "VPN permission denied"
+
+- Grant VPN permission when the dialog appears. If it never appears, go to **Settings → VPN → AndroNet** and enable it manually.
+- Tap **Start** only once; the button becomes grey ("Wait…") while the VPN is negotiating.
+- If the capture starts but immediately stops, check: `adb logcat | grep -E "ZdtunVpn|CaptureService|onCaptureError"`.
+
+### VPN mode not working (no packets shown)
+
+```bash
+adb logcat | grep -E "ZdtunVpn|CaptureService|AndroNet"
+```
+
+- Look for `startForeground` — if missing, the OS killed the service. Update to latest build.
+- Confirm the VPN tunnel is active: **Settings → Network → VPN** should show "AndroNet VPN Active".
+- Restart the app and try again; the service recovers automatically on the next launch.
+
+### Libpcap / NetHunter mode issues
+
+```bash
+# On-device (requires root)
+su -c "id"                         # must show uid=0
+su -c "apt install -y libpcap-dev" # Kali NetHunter only
+```
+
+- Root check failed? The app detects root via `su -c id`. Some Magisk configurations hide root from apps — grant root to AndroNet in the Magisk app manager.
+- After installing libpcap, rebuild the app from source so CMake picks up the library.
+
+### Android 15 — app crashes with illegal instruction / alignment fault
+
+Ensure you are running build ≥ 1.0 (commit 4 applied 16 KB page-size alignment). If building yourself, check that `useLegacyPackaging = false` is set in `build.gradle` and `android:extractNativeLibs` is **not** in `AndroidManifest.xml`.
+
+### Collecting a full bug report
+
+```powershell
+adb bugreport bug-report.zip
+```
+
+Attach `bug-report.zip` when opening a GitHub issue.
 
 ---
 

@@ -8,18 +8,20 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- VPN permission (⚡ Required for VpnService) -->
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
 
-    <!-- Storage (deprecated after Android 10, but added for backward compatibility) -->
+    <!-- Storage -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
+        android:maxSdkVersion="32" />
 
     <!-- Optional: if you truly need MANAGE_EXTERNAL_STORAGE on Android 11+ -->
     <uses-permission
@@ -35,9 +37,8 @@
 
     <application
         android:label="AndroNet"
-        android:name="${applicationName}"
+        android:name="androidx.multidex.MultiDexApplication"
         android:icon="@mipmap/ic_launcher"
-        android:extractNativeLibs="true"
         android:requestLegacyExternalStorage="true">
 
         <activity
@@ -63,8 +64,19 @@
         <service
             android:name=".ZdtunVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="true"
-            android:foregroundServiceType="connectedDevice|dataSync">
+            android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <!-- Capture Service (Enhanced VPN capture) -->
+        <service
+            android:name=".CaptureService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
+            android:foregroundServiceType="dataSync">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
@@ -110,9 +122,9 @@
 
         <service
             android:name=".NetHunterService"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|dataSync" />
+            android:foregroundServiceType="dataSync" />
 
         <meta-data
             android:name="flutterEmbedding"

@@ -57,6 +57,22 @@ class CaptureService : VpnService() {
         var packetsIn: Long = 0
     )
 
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        Log.i("CaptureService", "CaptureService created")
+    }
+
+    override fun onRevoke() {
+        Log.w("CaptureService", "VPN permission revoked by system")
+        try {
+            stopCapture()
+        } catch (e: Exception) {
+            Log.e("CaptureService", "Error during revoke cleanup: ${e.message}", e)
+        }
+        super.onRevoke()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i("CaptureService", "🚀 Starting capture service...")
 
@@ -76,7 +92,6 @@ class CaptureService : VpnService() {
         }
 
         try {
-            createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification())
 
             // Configure VPN with PCAPdroid-like settings
@@ -109,6 +124,7 @@ class CaptureService : VpnService() {
                 ))
             } else {
                 Log.e("CaptureService", "❌ Failed to establish VPN interface")
+                stopForeground(true)
                 stopSelf()
             }
 
@@ -117,6 +133,7 @@ class CaptureService : VpnService() {
             notifyFlutter("CAPTURE_ERROR", mapOf(
                 "error" to e.message
             ))
+            stopForeground(true)
             stopSelf()
         }
     }

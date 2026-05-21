@@ -44,29 +44,61 @@ class PacketInfo {
     this.sourceDomain,
   });
 
+  factory PacketInfo.empty() => PacketInfo(
+        sourceIp: '0.0.0.0',
+        destinationIp: '0.0.0.0',
+        sourcePort: 0,
+        destinationPort: 0,
+        protocol: 'UNK',
+        size: 0,
+        timestamp: DateTime.now().millisecondsSinceEpoch.toString(),
+        payload: '',
+      );
+
   factory PacketInfo.fromMap(Map<String, dynamic> map) {
+    if (map.isEmpty) return PacketInfo.empty();
+
     // Extract DPI fields (http_, dns_, tls_, dhcp_)
     final dpiFields = <String, dynamic>{};
-    for (final entry in map.entries) {
-      if (entry.key.startsWith('http_') ||
-          entry.key.startsWith('dns_') ||
-          entry.key.startsWith('tls_') ||
-          entry.key.startsWith('dhcp_')) {
-        dpiFields[entry.key] = entry.value;
+    try {
+      for (final entry in map.entries) {
+        if (entry.key.startsWith('http_') ||
+            entry.key.startsWith('dns_') ||
+            entry.key.startsWith('tls_') ||
+            entry.key.startsWith('dhcp_')) {
+          dpiFields[entry.key] = entry.value;
+        }
+      }
+    } catch (_) {}
+
+    Map<String, dynamic>? safeMap(dynamic v) {
+      if (v == null) return null;
+      try {
+        return Map<String, dynamic>.from(v as Map);
+      } catch (_) {
+        return null;
       }
     }
 
     return PacketInfo(
       sourceIp:
-          map['sourceIp']?.toString() ?? map['sourceAddress']?.toString() ?? '',
+          map['sourceIp']?.toString() ??
+          map['sourceAddress']?.toString() ??
+          '0.0.0.0',
       destinationIp:
           map['destinationIp']?.toString() ??
           map['destinationAddress']?.toString() ??
-          '',
-      sourcePort: int.tryParse(map['sourcePort'].toString()) ?? 0,
-      destinationPort: int.tryParse(map['destinationPort'].toString()) ?? 0,
+          '0.0.0.0',
+      sourcePort: (map['sourcePort'] as num?)?.toInt() ??
+          int.tryParse(map['sourcePort']?.toString() ?? '') ??
+          0,
+      destinationPort: (map['destinationPort'] as num?)?.toInt() ??
+          int.tryParse(map['destinationPort']?.toString() ?? '') ??
+          0,
       protocol: map['protocol']?.toString() ?? 'UNK',
-      size: int.tryParse(map['size'].toString()) ?? 0,
+      size: (map['size'] as num?)?.toInt() ??
+          int.tryParse(map['size']?.toString() ?? '') ??
+          0,
       timestamp:
           map['timestamp']?.toString() ??
           DateTime.now().millisecondsSinceEpoch.toString(),
@@ -75,26 +107,13 @@ class PacketInfo {
       flags: map['flags']?.toString(),
       appName: map['appName']?.toString(),
       dpiData: dpiFields.isNotEmpty ? dpiFields : null,
-      payloadAnalysis: map['payloadAnalysis'] as Map<String, dynamic>?,
-      httpData: map['httpData'] != null
-          ? Map<String, dynamic>.from(map['httpData'] as Map)
-          : null,
-      dnsData: map['dnsData'] != null
-          ? Map<String, dynamic>.from(map['dnsData'] as Map)
-          : null,
-      tlsData: map['tlsData'] != null
-          ? Map<String, dynamic>.from(map['tlsData'] as Map)
-          : null,
-      quicData: map['quicData'] != null
-          ? Map<String, dynamic>.from(map['quicData'] as Map)
-          : null,
-      // anomalyScore (0.0-1.0) is populated by AnomalyDetector.calculateAnomalyScore() on Android side
-      anomalyScore: map['anomalyScore'] != null
-          ? (map['anomalyScore'] as num).toDouble()
-          : null,
-      entropyScore: map['entropyScore'] != null
-          ? (map['entropyScore'] as num).toDouble()
-          : null,
+      payloadAnalysis: safeMap(map['payloadAnalysis']),
+      httpData: safeMap(map['httpData']),
+      dnsData: safeMap(map['dnsData']),
+      tlsData: safeMap(map['tlsData']),
+      quicData: safeMap(map['quicData']),
+      anomalyScore: (map['anomalyScore'] as num?)?.toDouble(),
+      entropyScore: (map['entropyScore'] as num?)?.toDouble(),
       domain: map['domain']?.toString(),
       domainFriendly: map['domainFriendly']?.toString(),
       sourceDomain: map['sourceDomain']?.toString(),
@@ -155,7 +174,9 @@ class AnomalyInfo {
           map['timestamp']?.toString() ??
           DateTime.now().millisecondsSinceEpoch
               .toString(), // String format - FIXES ERROR 4
-      details: map['details'] as Map<String, dynamic>?,
+      details: map['details'] is Map
+          ? Map<String, dynamic>.from(map['details'] as Map)
+          : null,
     );
   }
 
@@ -273,16 +294,16 @@ class NetworkMetrics {
   });
 
   factory NetworkMetrics.fromMap(Map<String, dynamic> map) {
-    int _toInt(dynamic v) =>
+    int toInt(dynamic v) =>
         (v is int) ? v : int.tryParse(v?.toString() ?? "0") ?? 0;
-    double _toDouble(dynamic v) =>
+    double toDouble(dynamic v) =>
         (v is double) ? v : double.tryParse(v?.toString() ?? "0") ?? 0;
 
     return NetworkMetrics(
-      totalPackets: _toInt(map['totalPackets']),
-      packetsPerSecond: _toDouble(map['packetsPerSecond']),
-      totalSessions: _toInt(map['totalSessions']),
-      dataRate: _toDouble(map['dataRate']),
+      totalPackets: toInt(map['totalPackets']),
+      packetsPerSecond: toDouble(map['packetsPerSecond']),
+      totalSessions: toInt(map['totalSessions']),
+      dataRate: toDouble(map['dataRate']),
     );
   }
 }
