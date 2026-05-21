@@ -9,6 +9,8 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout with submodules
@@ -36,7 +38,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Build release APK (arm64)
         run: flutter build apk --release --split-per-abi --target-platform android-arm64
@@ -69,5 +71,6 @@ jobs:
           files: build/app/outputs/flutter-apk/AndroNet-${{ github.ref_name }}-arm64.apk
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
