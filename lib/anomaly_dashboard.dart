@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
-import 'dart:math' as math;
 import 'models.dart';
 
 class AnomalyDashboard extends StatefulWidget {
@@ -137,15 +136,6 @@ class _AnomalyDashboardState extends State<AnomalyDashboard>
     for (final anomaly in _anomalies) {
       final severity = anomaly.severity.toUpperCase();
       stats[severity] = (stats[severity] ?? 0) + 1;
-    }
-    return stats;
-  }
-
-  Map<String, int> get _typeStats {
-    final stats = <String, int>{};
-    for (final anomaly in _anomalies) {
-      final type = anomaly.friendlyType;
-      stats[type] = (stats[type] ?? 0) + 1;
     }
     return stats;
   }

@@ -86,6 +86,7 @@ class PacketInfo {
       quicData: map['quicData'] != null
           ? Map<String, dynamic>.from(map['quicData'] as Map)
           : null,
+      // anomalyScore (0.0-1.0) is populated by AnomalyDetector.calculateAnomalyScore() on Android side
       anomalyScore: map['anomalyScore'] != null
           ? (map['anomalyScore'] as num).toDouble()
           : null,
