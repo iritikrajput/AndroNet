@@ -363,6 +363,8 @@ class MainActivity : FlutterFragmentActivity() {
             AnomalyDetector.AnomalyType.CONNECTION_FLOOD -> "Connection Flood Attack"
             AnomalyDetector.AnomalyType.UNUSUAL_TRAFFIC -> "Suspicious Network Activity"
             AnomalyDetector.AnomalyType.MALFORMED_PACKET -> "Malformed Packet Detected"
+            AnomalyDetector.AnomalyType.HIGH_ENTROPY_PAYLOAD -> "High Entropy Payload Detected"
+            AnomalyDetector.AnomalyType.COVERT_CHANNEL -> "Covert Channel Detected"
         }
     }
     
