@@ -115,13 +115,10 @@ class PacketAnalysisManager(private val context: Context) {
             TrafficStatistics.updateStats(packetInfo)
 
             // 2. Deep packet inspection (if payload available)
-
+            var extractedPayload: ByteArray? = null
             val enrichedPacket = if (rawPacket != null && rawPacket.isNotEmpty()) {
-                // Extract payload from raw packet
-                val payload = extractPayload(rawPacket, packetInfo)
-
-                val result = PacketDissector.dissect(packetInfo, payload)
-                result
+                extractedPayload = extractPayload(rawPacket, packetInfo)
+                PacketDissector.dissect(packetInfo, extractedPayload)
             } else {
                 packetInfo
             }
@@ -155,8 +152,8 @@ class PacketAnalysisManager(private val context: Context) {
                 }
             }
 
-            // 3. Anomaly detection
-            AnomalyDetector.analyzePacket(finalPacket)
+            // 3. Anomaly detection (pass extracted payload for entropy analysis)
+            AnomalyDetector.analyzePacket(finalPacket, extractedPayload)
             finalPacket["anomalyScore"] = AnomalyDetector.calculateAnomalyScore(finalPacket)
 
             // 4. PCAP export (if active)

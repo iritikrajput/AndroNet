@@ -91,6 +91,13 @@ Real-time threat detection with 5 built-in algorithms:
 5. **ARP Spoofing** - Monitors IP-to-MAC mapping changes (Severity: CRITICAL)
 - Real-time SnackBar alerts in the Flutter UI showing severity, type, source IP, and description
 
+**Entropy Analysis** (Shannon entropy on every payload ≥ 32 bytes):
+- DNS tunneling detected: dnscat2, iodine signatures (entropy > 5.5 in DNS queries)
+- ICMP covert channels detected: icmptunnel, ptunnel (entropy > 6.0 in ICMP payloads)
+- HTTP/plain-protocol data exfiltration detected (entropy > 7.2)
+- Suspicious encoding in HTTP/DNS flagged at medium severity (entropy 6.5–7.2)
+- Entropy score visible as a badge (`E:x.x`) on each packet in the capture UI
+
 ###  **Traffic Statistics & Analytics**
 - Real-time metrics (packets/sec, bytes/sec, connections)
 - Protocol distribution charts

@@ -10,6 +10,7 @@ class PacketInfo {
   final Map<String, dynamic>? dpiData;
   final Map<String, dynamic>? payloadAnalysis;
   final double? anomalyScore;
+  final double? entropyScore;
   final Map<String, dynamic>? httpData;
   final Map<String, dynamic>? dnsData;
   final Map<String, dynamic>? tlsData;
@@ -33,6 +34,7 @@ class PacketInfo {
     this.dpiData,
     this.payloadAnalysis,
     this.anomalyScore,
+    this.entropyScore,
     this.httpData,
     this.dnsData,
     this.tlsData,
@@ -89,6 +91,9 @@ class PacketInfo {
       // anomalyScore (0.0-1.0) is populated by AnomalyDetector.calculateAnomalyScore() on Android side
       anomalyScore: map['anomalyScore'] != null
           ? (map['anomalyScore'] as num).toDouble()
+          : null,
+      entropyScore: map['entropyScore'] != null
+          ? (map['entropyScore'] as num).toDouble()
           : null,
       domain: map['domain']?.toString(),
       domainFriendly: map['domainFriendly']?.toString(),

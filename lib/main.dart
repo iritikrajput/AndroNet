@@ -991,6 +991,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     final description = data['description']?.toString() ?? '';
     final sourceIp = data['sourceIp']?.toString() ?? '';
 
+    final showToolSignatures =
+        type == 'DNS_TUNNELING' || type == 'COVERT_CHANNEL';
+
     // Determine color based on severity: CRITICAL (red) > HIGH (orange) > MEDIUM (amber) > LOW (blue)
     final color = switch (severity) {
       'CRITICAL' => Colors.red.shade700,
@@ -1021,6 +1024,11 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               Text(
                 'Source: $sourceIp',
                 style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+            if (showToolSignatures)
+              const Text(
+                'Tool signatures: dnscat2, iodine, icmptunnel, ptunnel',
+                style: TextStyle(color: Colors.white54, fontSize: 10),
               ),
           ],
         ),
