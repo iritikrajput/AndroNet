@@ -89,6 +89,10 @@ repositories {
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
 
+    // Unit test dependencies
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation "org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version"
+
     // Biometric authentication
     implementation 'androidx.biometric:biometric:1.1.0'
 
