@@ -46,3 +46,19 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Build artifacts and APKs
+build/
+*.apk
+*.aab
+
+# Android local config and Gradle cache
+local.properties
+.gradle/
+
+# NDK and native build caches
+.externalNativeBuild/
+.cxx/
+
+# Packet capture output
+captures/
