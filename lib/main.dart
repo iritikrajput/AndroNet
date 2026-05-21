@@ -991,6 +991,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     final description = data['description']?.toString() ?? '';
     final sourceIp = data['sourceIp']?.toString() ?? '';
 
+    // Determine color based on severity: CRITICAL (red) > HIGH (orange) > MEDIUM (amber) > LOW (blue)
     final color = switch (severity) {
       'CRITICAL' => Colors.red.shade700,
       'HIGH' => Colors.orange.shade700,
