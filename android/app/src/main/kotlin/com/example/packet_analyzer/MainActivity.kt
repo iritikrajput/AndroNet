@@ -18,7 +18,10 @@ class MainActivity : FlutterFragmentActivity() {
     private val VPN_REQUEST_CODE = 1001
     private var biometricPrompt: BiometricPrompt? = null
     private var pendingBiometricResult: MethodChannel.Result? = null
-    
+    // mainHandler ensures anomaly notifications are posted on the main thread for UI updates
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private lateinit var methodChannel: MethodChannel
+
     // Anomaly Detection Integration
     private var anomalyEventSink: EventChannel.EventSink? = null
     private var packetEventSink: EventChannel.EventSink? = null
@@ -28,6 +31,7 @@ class MainActivity : FlutterFragmentActivity() {
 
         Log.i("MainActivity", "🔧 Configuring Flutter engine...")
         val methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        this.methodChannel = methodChannel
         Log.i("MainActivity", "📡 Method channel created for: $CHANNEL")
 
         // Set the method channel for service communication
@@ -94,8 +98,9 @@ class MainActivity : FlutterFragmentActivity() {
                 "startVpn" -> {
                     // Use ZdtunVpnService with zdtun library
                     val intent = Intent(this, ZdtunVpnService::class.java)
+                    setupAnomalyListener()
                     startService(intent)
-                    
+
                     // Start anomaly detection when VPN starts
                     startAnomalyDetection()
                     
@@ -115,8 +120,9 @@ class MainActivity : FlutterFragmentActivity() {
                 "startCapture" -> {
                     val intent = Intent(this, CaptureService::class.java)
                     intent.action = "START_CAPTURE"
+                    setupAnomalyListener()
                     startService(intent)
-                    
+
                     // Start anomaly detection for enhanced capture
                     startAnomalyDetection()
                     
@@ -268,7 +274,25 @@ class MainActivity : FlutterFragmentActivity() {
         AnomalyDetector.cleanup()
         RuleEngine.clearState()
     }
-    
+
+    private fun setupAnomalyListener() {
+        AnomalyDetector.addAnomalyListener { anomaly ->
+            mainHandler.post {
+                methodChannel.invokeMethod(
+                    "onAnomalyDetected",
+                    mapOf(
+                        "type" to anomaly.type.name,
+                        "severity" to anomaly.severity.name,
+                        "description" to anomaly.description,
+                        "sourceIp" to (anomaly.sourceIp ?: ""),
+                        "destinationIp" to (anomaly.destinationIp ?: ""),
+                        "timestamp" to anomaly.timestamp
+                    )
+                )
+            }
+        }
+    }
+
     private fun onAnomalyDetected(anomaly: AnomalyDetector.Anomaly) {
         try {
             val anomalyMap = mapOf(
