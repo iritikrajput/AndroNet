@@ -1,5 +1,7 @@
 # AndroNet - Mobile Network Packet Analyzer for Kali NetHunter
 
+![Build](https://github.com/amibhai/AndroNet/actions/workflows/release.yml/badge.svg) ![PR Check](https://github.com/amibhai/AndroNet/actions/workflows/pr-check.yml/badge.svg)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-green.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Kali_NetHunter-Compatible-red.svg" alt="NetHunter">
@@ -20,6 +22,35 @@
 </div>
 
 </p>
+
+---
+
+## Installation
+
+### Latest Release (Recommended)
+1. Go to [Releases](https://github.com/amibhai/AndroNet/releases)
+2. Download `AndroNet-vX.Y.Z-arm64.apk`
+3. Open the file on your Android device
+4. Enable "Install from unknown sources" if prompted
+5. Install and open AndroNet
+
+### Build from Source
+Requirements: Flutter 3.44.0, NDK 28.2.13676358, Java 17
+
+```bash
+git clone --recurse-submodules https://github.com/amibhai/AndroNet.git
+cd AndroNet
+flutter pub get
+flutter build apk --release --split-per-abi --target-platform android-arm64
+```
+
+APK will be at: `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`
+
+### Publish a New Release
+```
+Windows:   scripts/tag-release.ps1 1.0.0
+Linux/Mac: ./scripts/tag-release.sh 1.0.0
+```
 
 ---
 
