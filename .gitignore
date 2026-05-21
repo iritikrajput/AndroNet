@@ -62,3 +62,10 @@ local.properties
 
 # Packet capture output
 captures/
+
+# CI logs
+.github/workflows/*.log
+scripts/*.log
+
+# Release artifacts (iOS)
+*.ipa
