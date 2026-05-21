@@ -69,5 +69,6 @@ jobs:
           files: build/app/outputs/flutter-apk/AndroNet-${{ github.ref_name }}-arm64.apk
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
