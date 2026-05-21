@@ -331,6 +331,40 @@ class EnhancedPacketCard extends StatelessWidget {
                     ),
                   ],
 
+                  // Entropy Score Badge
+                  if (packet.entropyScore != null &&
+                      packet.entropyScore! > 6.5) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (packet.entropyScore! > 7.2
+                                ? Colors.red
+                                : Colors.orange)
+                            .withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: packet.entropyScore! > 7.2
+                              ? Colors.red
+                              : Colors.orange,
+                        ),
+                      ),
+                      child: Text(
+                        'E:${packet.entropyScore!.toStringAsFixed(1)}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: packet.entropyScore! > 7.2
+                              ? Colors.red
+                              : Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+
                   const Spacer(),
 
                   // Expand Icon
