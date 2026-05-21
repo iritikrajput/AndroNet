@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'auth/auth_service.dart';
@@ -509,7 +508,6 @@ class PacketService {
 
   static final _buffer = <Map<String, dynamic>>[];
   static Timer? _flushTimer;
-  static Timer? _statsTimer;
   static StreamSubscription? _eventChannelSubscription;
   static StreamSubscription? _anomalySubscription;
 
@@ -892,7 +890,6 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   NetworkMetrics? _metrics;
   String _selectedProtocolFilter = "ALL";
   bool _autoScroll = true;
-  int _selectedTabIndex = 0;
 
   // Device and system information
   String _deviceInfo = 'Unknown';
@@ -918,17 +915,125 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   @override
   void initState() {
     super.initState();
+    // Setup method call handler to receive events from native code (packets, anomalies, status)
+    _channel.setMethodCallHandler(_onMethodCall);
     _initializeControllers();
     _setupStreamSubscriptions();
     _initializeNativeBridge();
   }
 
+  Future<dynamic> _onMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case 'onPacketReceived':
+        PacketService._handleNativePacket(
+          Map<String, dynamic>.from(call.arguments as Map),
+        );
+      case 'onPacketEvent':
+        final eventData = Map<String, dynamic>.from(call.arguments as Map);
+        final event = eventData['event'] as String?;
+        final data = eventData['data'];
+        switch (event) {
+          case 'PACKET_CAPTURED':
+            if (data is Map<String, dynamic>) {
+              PacketService._handleNativePacket(data);
+            }
+          case 'VPN_STARTED' ||
+                'VPN_STOPPED' ||
+                'LIBPCAP_STARTED' ||
+                'LIBPCAP_STOPPED' ||
+                'LIBPCAP_ERROR':
+            PacketService._statusController.add(
+              data?.toString() ?? event ?? 'Unknown Event',
+            );
+        }
+      case 'onStatsUpdated':
+        final stats = call.arguments;
+        if (stats is String) {
+          try {
+            PacketService._handleNativeStats(jsonDecode(stats));
+          } catch (_) {}
+        } else {
+          PacketService._handleNativeStats(stats);
+        }
+      case 'onStatusChanged':
+        final status = call.arguments;
+        if (status is Map<String, dynamic>) {
+          PacketService._handleNativeStatus(status);
+        } else if (status is String) {
+          PacketService._handleNativeStatus({'status': status});
+        }
+      case 'onSessionsUpdated':
+        PacketService._handleNativeSessions(call.arguments);
+      case 'onMetricsUpdated':
+        if (call.arguments is Map) {
+          PacketService._handleNativeMetrics(
+            Map<String, dynamic>.from(call.arguments as Map),
+          );
+        }
+      case 'onDashboardUpdate':
+        if (call.arguments is Map) {
+          PacketService._handleDashboardUpdate(
+            Map<String, dynamic>.from(call.arguments as Map),
+          );
+        }
+      case 'onAnomalyDetected':
+        // Handle real-time anomaly alerts from native anomaly detector
+        if (call.arguments is Map) {
+          _handleAnomaly(Map<String, dynamic>.from(call.arguments as Map));
+        }
+    }
+  }
+
+  void _handleAnomaly(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final severity = data['severity']?.toString().toUpperCase() ?? 'LOW';
+    final type = data['type']?.toString() ?? 'UNKNOWN';
+    final description = data['description']?.toString() ?? '';
+    final sourceIp = data['sourceIp']?.toString() ?? '';
+
+    final color = switch (severity) {
+      'CRITICAL' => Colors.red.shade700,
+      'HIGH' => Colors.orange.shade700,
+      'MEDIUM' => Colors.amber.shade700,
+      _ => Colors.blue.shade700,
+    };
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              type.replaceAll('_', ' '),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            if (description.isNotEmpty)
+              Text(
+                description,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            if (sourceIp.isNotEmpty)
+              Text(
+                'Source: $sourceIp',
+                style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+          ],
+        ),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 4),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   void _initializeControllers() {
     _tabController = TabController(length: 4, vsync: this);
-    _tabController.addListener(() {
-      if (mounted) setState(() => _selectedTabIndex = _tabController.index);
-    });
-
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1200),
       vsync: this,
