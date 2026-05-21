@@ -203,10 +203,25 @@ Recognizes **65+ application protocols** including HTTPS, DNS, SSH, FTP, SMTP, M
 
 ##  Getting Started
 
+### Build Requirements
+
+| Component | Version |
+|-----------|---------|
+| Flutter | 3.44.0 stable |
+| Dart SDK | 3.8.1+ |
+| AGP (Android Gradle Plugin) | 8.7.3 |
+| Gradle Wrapper | 8.10.2 |
+| Kotlin | 2.1.0 |
+| NDK | 28.2.13433566 |
+| compileSdk / targetSdk | 36 |
+| minSdk | 24 (Android 7.0) |
+
+> **16KB page alignment**: Android 15+ (API 35+) devices with 16KB memory pages require native libraries to be compiled with `-Wl,-z,max-page-size=16384` and packaged with `useLegacyPackaging = false`. This build already includes both flags for all `.so` targets (`zdtun_vpn`, `pcap_writer`, `pcap_capture`).
+
 ### Prerequisites
-- Flutter SDK 3.0+
-- Android Studio with NDK
-- CMake 3.10+
+- Flutter SDK 3.44.0+
+- Android Studio with NDK 28.2.13433566
+- CMake 3.22.1+
 - Kali NetHunter (optional, for libpcap mode)
 
 ### Installation
