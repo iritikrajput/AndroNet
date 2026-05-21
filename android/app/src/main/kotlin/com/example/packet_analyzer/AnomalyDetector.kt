@@ -20,6 +20,11 @@ object AnomalyDetector {
     private const val CONNECTION_RATE_THRESHOLD = 50
     private const val DNS_QUERY_THRESHOLD = 30
 
+    // Entropy analysis thresholds
+    private const val ENTROPY_THRESHOLD_HIGH = 7.2
+    private const val ENTROPY_THRESHOLD_SUSPICIOUS = 6.5
+    private const val MIN_PAYLOAD_SIZE_FOR_ENTROPY = 32
+
     // ML-based data structures
     private val trafficStats = TrafficStatistics()
     private val behavioralAnalyzer = BehavioralAnalyzer()
@@ -79,7 +84,7 @@ object AnomalyDetector {
 
     enum class AnomalyType {
         PORT_SCAN, SYN_FLOOD, ARP_SPOOFING, DNS_TUNNELING, CONNECTION_FLOOD,
-        UNUSUAL_TRAFFIC, MALFORMED_PACKET
+        UNUSUAL_TRAFFIC, MALFORMED_PACKET, HIGH_ENTROPY_PAYLOAD, COVERT_CHANNEL
     }
 
     enum class Severity { LOW, MEDIUM, HIGH, CRITICAL }
@@ -113,6 +118,20 @@ object AnomalyDetector {
 
     fun removeAnomalyListener(listener: (Anomaly) -> Unit) {
         anomalyListeners.remove(listener)
+    }
+
+    fun calculateEntropy(payload: ByteArray): Double {
+        if (payload.isEmpty()) return 0.0
+        val frequency = IntArray(256)
+        for (byte in payload) frequency[byte.toInt() and 0xFF]++
+        val size = payload.size.toDouble()
+        return frequency.fold(0.0) { entropy, count ->
+            if (count == 0) entropy
+            else {
+                val p = count / size
+                entropy - p * log2(p)
+            }
+        }
     }
 
     fun calculateAnomalyScore(packetInfo: Map<String, Any>): Double {
@@ -203,9 +222,16 @@ object AnomalyDetector {
                 )
             }
 
-            // === 4. ML-Based Detection (Stubs) ===
+            // === 4. Entropy-Based Detection ===
+            if (payload != null && payload.size >= MIN_PAYLOAD_SIZE_FOR_ENTROPY) {
+                val appName = packetInfo["appName"] as? String
+                checkDnsTunneling(payload, protocol, sourceIp, destIp)
+                checkHighEntropyPayload(payload, protocol, appName, sourceIp, destIp)
+                (packetInfo as? MutableMap<String, Any>)?.put("entropyScore", calculateEntropy(payload))
+            }
+
+            // === 5. ML-Based Detection (Stubs) ===
             detectBehavioralAnomalies(packetInfo)
-            detectEntropyAnomalies(packetInfo, payload)
             detectConnectionPatternAnomalies(packetInfo)
             updateTrafficStatistics(packetInfo, payload)
             updateBehavioralModels(packetInfo)
@@ -274,6 +300,76 @@ object AnomalyDetector {
         }
     }
 
+    private fun checkHighEntropyPayload(
+        payload: ByteArray,
+        protocol: String,
+        appName: String?,
+        sourceIp: String,
+        destinationIp: String
+    ) {
+        if (payload.size < MIN_PAYLOAD_SIZE_FOR_ENTROPY) return
+        if (protocol.isEmpty()) return
+        // TLS, QUIC, HTTPS are always high entropy — skip to avoid false positives
+        if (protocol == "TLS" || protocol == "QUIC" || protocol == "HTTPS") return
+
+        val entropy = calculateEntropy(payload)
+        when {
+            protocol == "ICMP" && entropy > 6.0 -> reportAnomaly(
+                Anomaly(
+                    type = AnomalyType.COVERT_CHANNEL,
+                    severity = Severity.CRITICAL,
+                    description = "ICMP payload entropy ${"%.2f".format(entropy)} — possible icmptunnel/ptunnel covert channel",
+                    sourceIp = sourceIp,
+                    destinationIp = destinationIp
+                )
+            )
+            (protocol == "HTTP" || protocol == "DNS") && entropy > ENTROPY_THRESHOLD_HIGH -> reportAnomaly(
+                Anomaly(
+                    type = AnomalyType.HIGH_ENTROPY_PAYLOAD,
+                    severity = Severity.HIGH,
+                    description = "High entropy ${"%.2f".format(entropy)} in $protocol payload — possible exfiltration",
+                    sourceIp = sourceIp,
+                    destinationIp = destinationIp
+                )
+            )
+            (protocol == "HTTP" || protocol == "DNS") && entropy > ENTROPY_THRESHOLD_SUSPICIOUS -> reportAnomaly(
+                Anomaly(
+                    type = AnomalyType.HIGH_ENTROPY_PAYLOAD,
+                    severity = Severity.MEDIUM,
+                    description = "Suspicious entropy ${"%.2f".format(entropy)} in $protocol payload",
+                    sourceIp = sourceIp,
+                    destinationIp = destinationIp
+                )
+            )
+            entropy > ENTROPY_THRESHOLD_HIGH -> reportAnomaly(
+                Anomaly(
+                    type = AnomalyType.HIGH_ENTROPY_PAYLOAD,
+                    severity = Severity.MEDIUM,
+                    description = "Unexpected high entropy ${"%.2f".format(entropy)} in $protocol — investigate",
+                    sourceIp = sourceIp,
+                    destinationIp = destinationIp
+                )
+            )
+        }
+    }
+
+    private fun checkDnsTunneling(payload: ByteArray, protocol: String, sourceIp: String, destinationIp: String) {
+        if (protocol != "DNS") return
+        if (payload.size < MIN_PAYLOAD_SIZE_FOR_ENTROPY) return
+        val entropy = calculateEntropy(payload)
+        if (entropy > 5.5) {
+            reportAnomaly(
+                Anomaly(
+                    type = AnomalyType.DNS_TUNNELING,
+                    severity = Severity.HIGH,
+                    description = "DNS query entropy ${"%.2f".format(entropy)} suggests tunneling tool (dnscat2/iodine)",
+                    sourceIp = sourceIp,
+                    destinationIp = destinationIp
+                )
+            )
+        }
+    }
+
     private fun detectDnsTunneling(queryName: String) {
         if (queryName.isEmpty()) return
         if (queryName.length > 50) {
@@ -301,9 +397,8 @@ object AnomalyDetector {
         for (listener in anomalyListeners) listener(anomaly)
     }
 
-    // === Dummy Functional Replacements (to fix missing references) ===
+    // === Stubs for future ML-based detection ===
     private fun detectBehavioralAnomalies(packetInfo: Map<String, Any>) {}
-    private fun detectEntropyAnomalies(packetInfo: Map<String, Any>, payload: ByteArray?) {}
     private fun detectConnectionPatternAnomalies(packetInfo: Map<String, Any>) {}
     private fun updateTrafficStatistics(packetInfo: Map<String, Any>, payload: ByteArray?) {}
     private fun updateBehavioralModels(packetInfo: Map<String, Any>) {}
