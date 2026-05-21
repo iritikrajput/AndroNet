@@ -235,6 +235,10 @@ class MainActivity : FlutterFragmentActivity() {
                     generateTestAnomaly()
                     result.success("Test anomaly generated")
                 }
+                // COMMIT 12: expose adaptive threshold values to Flutter UI
+                "getThresholdStatus" -> {
+                    result.success(AnomalyDetector.adaptiveThresholds.getStatus())
+                }
                 else -> result.notImplemented()
             }
         }
@@ -266,15 +270,17 @@ class MainActivity : FlutterFragmentActivity() {
     
     private fun startAnomalyDetection() {
         Log.i("MainActivity", "🚨 Starting anomaly detection...")
-        // The detection systems are always ready, just need to ensure packet flow
-        // Packets will be analyzed in ZdtunVpnService.onPacketReceived()
+        // COMMIT 9: begin the 60-second adaptive baseline learning period
+        AnomalyDetector.adaptiveThresholds.startLearning()
+        Log.i("AndroNet", "Adaptive threshold learning started — 60 second baseline period")
     }
-    
+
     private fun stopAnomalyDetection() {
         Log.i("MainActivity", "🚨 Stopping anomaly detection...")
-        // Clean up detection state
         AnomalyDetector.cleanup()
         RuleEngine.clearState()
+        // COMMIT 9: reset adaptive thresholds so next session starts fresh
+        AnomalyDetector.adaptiveThresholds.reset()
     }
 
     private fun setupAnomalyListener() {
