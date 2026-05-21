@@ -157,6 +157,7 @@ class PacketAnalysisManager(private val context: Context) {
 
             // 3. Anomaly detection
             AnomalyDetector.analyzePacket(finalPacket)
+            finalPacket["anomalyScore"] = AnomalyDetector.calculateAnomalyScore(finalPacket)
 
             // 4. PCAP export (if active)
             if (isPcapExporting && rawPacket != null) {
