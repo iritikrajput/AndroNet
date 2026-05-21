@@ -98,6 +98,7 @@ class MainActivity : FlutterFragmentActivity() {
                 "startVpn" -> {
                     // Use ZdtunVpnService with zdtun library
                     val intent = Intent(this, ZdtunVpnService::class.java)
+                    // Register anomaly listener before starting capture to ensure alerts are sent to Flutter
                     setupAnomalyListener()
                     startService(intent)
 
@@ -120,6 +121,7 @@ class MainActivity : FlutterFragmentActivity() {
                 "startCapture" -> {
                     val intent = Intent(this, CaptureService::class.java)
                     intent.action = "START_CAPTURE"
+                    // Register anomaly listener before starting capture to ensure alerts are sent to Flutter
                     setupAnomalyListener()
                     startService(intent)
 
