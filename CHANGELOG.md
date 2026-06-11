@@ -7,18 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Dual capture mode: VPN (unrooted) and libpcap (NetHunter/root)
-- 65+ protocol detection via deep packet inspection
-- Real-time anomaly detection: port scan, SYN flood, connection flood, DNS tunneling, ARP spoofing
-- Shannon entropy analysis for covert channel and exfiltration detection
-- ICMP covert channel detection (icmptunnel, ptunnel signatures)
-- Real-time SnackBar alerts with severity levels: CRITICAL, HIGH, MEDIUM, LOW
-- PCAP export with microsecond timestamps
-- Traffic statistics dashboard
-- Anomaly score per packet (0.0–1.0)
-- Entropy score badge on suspicious packets
-- GitHub Actions CI/CD pipeline for automated release APK builds
+---
+
+## [1.2.0] - 2026-05-21
+
+### 🔧 Build & Install Fixes
+- **C1** `build.gradle`: `ndk { abiFilters "arm64-v8a", "armeabi-v7a" }` — prevents `INSTALL_FAILED_NO_MATCHING_ABIS`
+- **C2** `build.gradle`: `minSdkVersion 23`, `multiDexEnabled true`, `multidex:2.0.1` dependency
+- **C3** `AndroidManifest.xml`: Switched to `MultiDexApplication`, removed conflicting `extractNativeLibs`, added `FOREGROUND_SERVICE_DATA_SYNC` + `POST_NOTIFICATIONS` permissions, added missing `CaptureService` declaration, fixed `NetHunterService` (`enabled=true`)
+- **C4** `build.gradle` + `CMakeLists.txt`: `useLegacyPackaging=false`, `-Wl,-z,max-page-size=16384` for Android 15 16 KB page alignment
+
+### 🐛 UI Crash Fixes (icon tap)
+- **C5** `main.dart`: `FlutterError.onError` + `PlatformDispatcher.instance.onError` global handlers
+- **C6** `main.dart`: Null guard + `try/catch` in `ListView.builder`, safe `_getThresholdStatus()`
+- **C7** `main.dart`: Wrapped entire `_onMethodCall` body in `try/catch`
+- **C8** `models.dart`: `PacketInfo.empty()`, safe casts throughout, `safeMap()` helper, fixed `AnomalyInfo.fromMap`
+
+### 🐛 Start Capture Crash Fixes
+- **C9** `MainActivity.kt`: JNI call guards, `onNativeLibraryError` / `onCaptureError` Flutter notifications
+- **C10** `MainActivity.kt`: `pendingVpnAction` pattern + `onActivityResult` override — VPN permission flow now completes
+- **C11** `NetHunterService.kt`: Root check before attempting libpcap
+- **C12** `ZdtunVpnService.kt`: `createNotificationChannel()`, `buildNotification()`, `startForeground()` before any blocking work, `UnsatisfiedLinkError` catch notifying Flutter, `onRevoke()` cleanup
+- **C13** `CaptureService.kt`: `onCreate()` for channel setup, `onRevoke()` added, `stopForeground()` before orphaned `stopSelf()` calls
+- **C14** `PacketAnalysisManager.kt` + `AnomalyDetector.kt`: `AtomicInteger`/`AtomicLong` for shared counters, `ConcurrentHashMap` for all four tracker maps
+- **C15** `main.dart`: `onVpnPermissionGranted` handler syncs `_isCapturing` + `_vpnPermissionGranted` to true; `onCaptureError` now also resets `_isCapturing`
+- **C16** `main.dart`: `_isCaptureStarting` bool guards all entry/exit points, FAB shows spinner and disables during transition
+
+### ⚡ Performance & Release Polish
+- **C17** `build.gradle` + new `proguard-rules.pro`: `minifyEnabled true`, `shrinkResources true`, JNI keep rules, service keep rules
+- **C18** `CMakeLists.txt`: Release optimization flags `CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG"`
+- **C19** `scripts/install-debug.ps1` + `scripts/get-crash-log.ps1`: Build+install helper and filtered crash log collector
+- **C20** `README.md`: Comprehensive Troubleshooting section covering all three crash categories
 
 ### Build
 - Flutter 3.44.0 stable
