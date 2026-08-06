@@ -1,11 +1,13 @@
-gradle-wrapper.jar
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
+
+# gradlew/gradlew.bat/gradle-wrapper.jar are intentionally NOT ignored here
+# (overriding Flutter's default template) — this repo's CI invokes `./gradlew`
+# directly in several workflows, which only works if the wrapper is actually
+# committed. That's the standard, intended use of the Gradle wrapper.
 
 # Remember to never publicly share your keystore.
 # See https://flutter.dev/to/reference-keystore
