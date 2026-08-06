@@ -23,6 +23,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <assert.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <android/log.h>
 
 #define TAG  "PcapWriter"
@@ -361,10 +363,82 @@ static char *make_rotated_filepath(const char *dir, uint32_t seq) {
     return full;
 }
 
-// Simple log-and-ignore approach for old-file pruning.
-// A production implementation would glob the directory.
+// Deletes the oldest rotated captures in `dir` beyond `max_files`, so
+// nativeSetRotationSettings's max_files actually bounds disk usage instead
+// of only being logged. Directories here hold at most a few dozen rotated
+// captures, so the O(n^2) selection sort below is not a concern.
+#define PURGE_MAX_TRACKED_FILES 256
 static void purge_old_files(const char *dir, int max_files) {
-    LOGI("Rotation: keeping last %d files in %s", max_files, dir);
+    if (max_files <= 0) return;
+
+    DIR *d = opendir(dir);
+    if (!d) {
+        LOGE("purge_old_files: cannot open dir %s", dir);
+        return;
+    }
+
+    char   *paths[PURGE_MAX_TRACKED_FILES];
+    time_t  mtimes[PURGE_MAX_TRACKED_FILES];
+    int     count = 0;
+
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL && count < PURGE_MAX_TRACKED_FILES) {
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+        // Only ever touch files we ourselves rotated: "andronet_...pcapng".
+        if (len < 16) continue;
+        if (strncmp(name, "andronet_", 9) != 0) continue;
+        if (strcmp(name + len - 7, ".pcapng") != 0) continue;
+
+        size_t dlen = strlen(dir);
+        char *full = (char *)malloc(dlen + len + 2);
+        if (!full) continue;
+        memcpy(full, dir, dlen);
+        full[dlen] = '/';
+        strcpy(full + dlen + 1, name);
+
+        // Never delete the file currently being written to.
+        if (g_ctx.current_path && strcmp(full, g_ctx.current_path) == 0) {
+            free(full);
+            continue;
+        }
+
+        struct stat st;
+        if (stat(full, &st) != 0) {
+            free(full);
+            continue;
+        }
+
+        paths[count]  = full;
+        mtimes[count] = st.st_mtime;
+        count++;
+    }
+    closedir(d);
+
+    if (count > max_files) {
+        // Selection sort, oldest first.
+        for (int i = 0; i < count - 1; i++) {
+            int oldest = i;
+            for (int j = i + 1; j < count; j++) {
+                if (mtimes[j] < mtimes[oldest]) oldest = j;
+            }
+            if (oldest != i) {
+                char   *tmp_path = paths[i];  paths[i]  = paths[oldest];  paths[oldest]  = tmp_path;
+                time_t  tmp_time = mtimes[i]; mtimes[i] = mtimes[oldest]; mtimes[oldest] = tmp_time;
+            }
+        }
+
+        int to_delete = count - max_files;
+        for (int i = 0; i < to_delete; i++) {
+            if (remove(paths[i]) == 0) {
+                LOGI("Rotation: pruned old capture %s", paths[i]);
+            } else {
+                LOGE("Rotation: failed to prune %s", paths[i]);
+            }
+        }
+    }
+
+    for (int i = 0; i < count; i++) free(paths[i]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -801,34 +875,43 @@ Java_com_example_packet_1analyzer_PcapWriter_nativeWritePacket(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JNI: nativeWriteAnnotatedPacket — COMMIT 9 (flagged / anomaly packets)
+//
+// The Kotlin side (PcapWriter.kt) declares this `timestampMs` and passes
+// milliseconds (System.currentTimeMillis() / a millisecond epoch from
+// PacketAnalysisManager) — same convention as nativeWritePacket above. This
+// used to be treated as *already nanoseconds* with no conversion, so every
+// anomaly-annotated packet got a timestamp near the 1970 epoch. Fixed to
+// mirror nativeWritePacket's behavior: prefer the live clock, fall back to
+// a ms->ns conversion of the caller-supplied value.
 // ─────────────────────────────────────────────────────────────────────────────
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_com_example_packet_1analyzer_PcapWriter_nativeWriteAnnotatedPacket(
         JNIEnv *env, jobject thiz,
-        jbyteArray jpkt, jlong timestamp_ns_j, jstring jannotation) {
-    if (!g_ctx.initialized || !g_ctx.file) return;
+        jbyteArray jpkt, jlong timestamp_ms, jstring jannotation) {
+    if (!g_ctx.initialized || !g_ctx.file) return JNI_FALSE;
 
     jsize  pkt_len   = (*env)->GetArrayLength(env, jpkt);
     jbyte *pkt_bytes = (*env)->GetByteArrayElements(env, jpkt, NULL);
-    if (!pkt_bytes) return;
+    if (!pkt_bytes) return JNI_FALSE;
 
     const char *annotation = NULL;
     if (jannotation)
         annotation = (*env)->GetStringUTFChars(env, jannotation, NULL);
 
-    uint64_t ts_ns = (uint64_t)timestamp_ns_j;
-    // If caller passed 0, get time ourselves.
-    if (ts_ns == 0u) {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts_ns = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-    }
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t ts_ns = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+
+    // Fallback if clock unavailable: convert the caller-supplied ms to ns.
+    if (ts_ns == 0u)
+        ts_ns = (uint64_t)timestamp_ms * 1000000ULL;
 
     ring_produce((const uint8_t *)pkt_bytes, (uint32_t)pkt_len,
                  (uint32_t)pkt_len, ts_ns, annotation);
 
     if (annotation) (*env)->ReleaseStringUTFChars(env, jannotation, annotation);
     (*env)->ReleaseByteArrayElements(env, jpkt, pkt_bytes, JNI_ABORT);
+    return JNI_TRUE;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -146,17 +146,12 @@ class PacketAnalysisManager(private val context: Context) {
             val destIp = (enrichedPacket["destinationAddress"] ?: enrichedPacket["destinationIp"]) as? String
             val sourceIp = (enrichedPacket["sourceAddress"] ?: enrichedPacket["sourceIp"]) as? String
 
-            Log.d(TAG, "🔍 Looking up domain for destIp=$destIp, sourceIp=$sourceIp")
-
             // Check if destination IP has a known domain
             if (destIp != null) {
                 val domain = DomainTracker.getDomainForIp(destIp)
                 if (domain != null) {
                     finalPacket["domain"] = domain
                     finalPacket["domainFriendly"] = DomainTracker.getFriendlyName(domain)
-                    Log.d(TAG, "✅ Domain found for $destIp: $domain (${finalPacket["domainFriendly"]})")
-                } else {
-                    Log.d(TAG, "❌ No domain found for $destIp")
                 }
             }
 
@@ -165,7 +160,6 @@ class PacketAnalysisManager(private val context: Context) {
                 val sourceDomain = DomainTracker.getDomainForIp(sourceIp)
                 if (sourceDomain != null) {
                     finalPacket["sourceDomain"] = sourceDomain
-                    Log.d(TAG, "✅ Source domain found for $sourceIp: $sourceDomain")
                 }
             }
 
@@ -490,13 +484,10 @@ class PacketAnalysisManager(private val context: Context) {
             }
 
             if (payloadStart >= packet.size) {
-                Log.d(TAG, "⚠️ No payload: payloadStart=$payloadStart >= packetSize=${packet.size}, protocol=$protocol, transportProtocol=$transportProtocol")
                 return null
             }
 
-            val extractedPayload = packet.copyOfRange(payloadStart, packet.size)
-            Log.d(TAG, "✅ Payload extracted: size=${extractedPayload.size} bytes, protocol=$protocol, transportProtocol=$transportProtocol")
-            return extractedPayload
+            return packet.copyOfRange(payloadStart, packet.size)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error extracting payload: ${e.message}")

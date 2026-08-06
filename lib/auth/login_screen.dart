@@ -5,7 +5,7 @@ import 'auth_service.dart';
 import 'widgets/pattern_widget.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -188,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen>
                   'Too many failed attempts. Please wait:',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -250,7 +250,7 @@ class _LoginScreenState extends State<LoginScreen>
             'by CipherSec',
             style: TextStyle(
               fontSize: 16,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
         ],
@@ -297,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen>
             decoration: InputDecoration(
               hintText: '••••',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -367,7 +367,7 @@ class _LoginScreenState extends State<LoginScreen>
             decoration: InputDecoration(
               hintText: 'Password',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -493,7 +493,7 @@ class _LoginScreenState extends State<LoginScreen>
           Icon(
             Icons.security_update_good,
             size: 64,
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
           ),
           const SizedBox(height: 24),
           Text(
@@ -509,7 +509,7 @@ class _LoginScreenState extends State<LoginScreen>
             'Choose a security method to protect your network analysis',
             style: TextStyle(
               fontSize: 16,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
             textAlign: TextAlign.center,
           ),

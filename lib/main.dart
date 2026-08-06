@@ -10,9 +10,11 @@ import 'auth/auth_service.dart';
 import 'auth/auth_wrapper.dart';
 import 'auth/login_screen.dart';
 import 'auth/setup_auth_screen.dart';
+import 'auth/widgets/pattern_widget.dart';
 import 'models.dart';
 import 'enhanced_ui_components.dart';
 import 'anomaly_dashboard.dart';
+import 'theme_service.dart';
 
 // ================= CAPTURE MODE ENUM =================
 enum CaptureMode {
@@ -77,90 +79,13 @@ enum CaptureMode {
 }
 
 // ================= GLOBAL PACKET LISTENER =================
+// The one live MethodCallHandler for this channel is registered by
+// _PacketAnalyzerScreenState.initState() (_onMethodCall) once the main screen
+// mounts. MethodChannel only supports a single active handler at a time, so a
+// second registration here would just be silently replaced by that one —
+// this used to exist as such a handler (with its own duplicated, unguarded
+// print()-per-packet logging) and was pure dead code in practice.
 const _channel = MethodChannel("packet_analyzer");
-
-void initPacketListener() {
-  print("🔧 Setting up packet listener..."); // Debug log
-  _channel.setMethodCallHandler((call) async {
-    print("📞 Flutter received method call: ${call.method}"); // Debug log
-    switch (call.method) {
-      case "onPacketReceived":
-        print("📥 onPacketReceived called"); // Debug log
-        PacketService._handleNativePacket(
-          Map<String, dynamic>.from(call.arguments),
-        );
-        break;
-      case "onPacketEvent":
-        print(
-          "📥 onPacketEvent called with args: ${call.arguments}",
-        ); // Debug log
-        final eventData = Map<String, dynamic>.from(call.arguments);
-        final event = eventData['event'] as String?;
-        final data = eventData['data'];
-
-        print("🎯 Processing event: $event"); // Debug log
-        switch (event) {
-          case "PACKET_CAPTURED":
-            print("📦 PACKET_CAPTURED event received!"); // Debug log
-            if (data is Map<String, dynamic>) {
-              PacketService._handleNativePacket(data);
-            }
-            break;
-          case "VPN_STARTED":
-          case "VPN_STOPPED":
-          case "LIBPCAP_STARTED":
-          case "LIBPCAP_STOPPED":
-          case "LIBPCAP_ERROR":
-            PacketService._statusController.add(
-              data?.toString() ?? event ?? "Unknown Event",
-            );
-            break;
-        }
-        break;
-      case "onStatsUpdated":
-        final stats = call.arguments;
-        if (stats is String) {
-          try {
-            final parsed = jsonDecode(stats);
-            PacketService._handleNativeStats(parsed);
-          } catch (_) {}
-        } else {
-          PacketService._handleNativeStats(stats);
-        }
-        break;
-      case "onStatusChanged":
-        final status = call.arguments;
-        if (status is Map<String, dynamic>) {
-          PacketService._handleNativeStatus(status);
-        } else if (status is String) {
-          PacketService._handleNativeStatus({'status': status});
-        }
-        break;
-      case "onSessionsUpdated":
-        PacketService._handleNativeSessions(call.arguments);
-        break;
-      case "onMetricsUpdated":
-        if (call.arguments is Map) {
-          PacketService._handleNativeMetrics(
-            Map<String, dynamic>.from(call.arguments),
-          );
-        }
-        break;
-      case "onDashboardUpdate":
-        print("📊 Dashboard update received"); // Debug log
-        if (call.arguments is Map) {
-          PacketService._handleDashboardUpdate(
-            Map<String, dynamic>.from(call.arguments),
-          );
-        }
-        break;
-      case "onAnomalyDetected":
-        print("🚨 Anomaly detected"); // Debug log
-        // Handle anomaly notifications
-        break;
-    }
-  });
-}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -177,11 +102,13 @@ void main() {
     return true;
   };
 
-  initPacketListener();
   PacketService.initialize();
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => AuthenticationService(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => AuthenticationService()),
+        ChangeNotifierProvider(create: (context) => ThemeService()..initialize()),
+      ],
       child: const PacketAnalyzerApp(),
     ),
   );
@@ -406,96 +333,6 @@ class NativeBridge {
       return false;
     }
   }
-
-  static Future<String> exportData(Map<String, dynamic> data) async {
-    try {
-      final result = await platform.invokeMethod("exportData", data);
-      return result?.toString() ?? "Export failed";
-    } catch (e) {
-      debugPrint("Error exporting data: $e");
-      return "Error: ${e.toString()}";
-    }
-  }
-
-  static Future<bool> startRootCapture() async {
-    try {
-      final result = await platform.invokeMethod("startRootedCapture");
-      return result == true;
-    } catch (e) {
-      debugPrint("Error starting root capture: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> stopRootCapture() async {
-    try {
-      final result = await platform.invokeMethod("stopRootedCapture");
-      return result == true;
-    } catch (e) {
-      debugPrint("Error stopping root capture: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> startPcapCapture() async {
-    try {
-      final result = await platform.invokeMethod("startPcapCapture");
-      return result == true;
-    } catch (e) {
-      debugPrint("Error starting PCAP capture: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> stopPcapCapture() async {
-    try {
-      final result = await platform.invokeMethod("stopPcapCapture");
-      return result == true;
-    } catch (e) {
-      debugPrint("Error stopping PCAP capture: $e");
-      return false;
-    }
-  }
-}
-
-class ProtocolStats {
-  final String protocol;
-  final int packetCount;
-  final double percentage;
-
-  const ProtocolStats({
-    required this.protocol,
-    required this.packetCount,
-    this.percentage = 0.0,
-  });
-}
-
-class NetworkMetrics {
-  final int totalPackets;
-  final double packetsPerSecond;
-  final int totalSessions;
-  final double dataRate;
-
-  const NetworkMetrics({
-    required this.totalPackets,
-    required this.packetsPerSecond,
-    this.totalSessions = 0,
-    this.dataRate = 0.0,
-  });
-
-  factory NetworkMetrics.fromMap(Map<String, dynamic> map) {
-    int toInt(dynamic v) =>
-        (v is int) ? v : int.tryParse(v?.toString() ?? "0") ?? 0;
-    double toDouble(dynamic v) =>
-        (v is double) ? v : double.tryParse(v?.toString() ?? "0") ?? 0;
-
-    return NetworkMetrics(
-      totalPackets: toInt(map['totalPackets']),
-      packetsPerSecond: toDouble(map['packetsPerSecond']),
-      totalSessions: toInt(map['totalSessions']),
-      dataRate: toDouble(map['dataRate']),
-    );
-  }
 }
 
 // ================= ENHANCED PACKET SERVICE WITH VPN CONTROLLER =================
@@ -537,38 +374,30 @@ class PacketService {
         .listen(
           (dynamic event) {
             try {
-              print("📡 Received packet from EventChannel: $event");
-
               Map<String, dynamic> packetData;
 
               // Handle different event types from native code
               if (event is String) {
                 packetData = jsonDecode(event) as Map<String, dynamic>;
-                print("📦 Parsed JSON packet: $packetData");
               } else if (event is Map<String, dynamic>) {
                 packetData = event;
               } else if (event is Map) {
                 // Handle Map<Object?, Object?> from native Android
                 packetData = Map<String, dynamic>.from(event);
-                print("📦 Converted native map packet: $packetData");
               } else {
-                print("⚠️ Unknown event type: ${event.runtimeType}");
-                print("⚠️ Raw event data: $event");
+                debugPrint(
+                  '⚠️ Unknown packet EventChannel event type: ${event.runtimeType}',
+                );
                 return;
               }
 
-              final packet = PacketInfo.fromMap(packetData);
-              print(
-                "✅ EventChannel PacketInfo: ${packet.protocol} ${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}",
-              );
-              _packetController.add(packet);
+              _packetController.add(PacketInfo.fromMap(packetData));
             } catch (e) {
-              print("❌ Error processing EventChannel packet: $e");
-              print("❌ Raw event: $event");
+              debugPrint('❌ Error processing EventChannel packet: $e');
             }
           },
           onError: (error) {
-            print("❌ EventChannel error: $error");
+            debugPrint('❌ EventChannel error: $error');
           },
         );
 
@@ -578,8 +407,6 @@ class PacketService {
         .listen(
           (dynamic event) {
             try {
-              print("🚨 Received anomaly from EventChannel: $event");
-
               Map<String, dynamic> anomalyData;
 
               // Handle different event types from native code
@@ -590,22 +417,19 @@ class PacketService {
               } else if (event is Map) {
                 anomalyData = Map<String, dynamic>.from(event);
               } else {
-                print("⚠️ Unknown anomaly event type: ${event.runtimeType}");
+                debugPrint(
+                  '⚠️ Unknown anomaly EventChannel event type: ${event.runtimeType}',
+                );
                 return;
               }
 
-              final anomaly = AnomalyInfo.fromMap(anomalyData);
-              print(
-                "🚨 Anomaly detected: ${anomaly.title} - ${anomaly.severity}",
-              );
-              _anomalyController.add(anomaly);
+              _anomalyController.add(AnomalyInfo.fromMap(anomalyData));
             } catch (e) {
-              print("❌ Error processing anomaly: $e");
-              print("❌ Raw event: $event");
+              debugPrint('❌ Error processing anomaly: $e');
             }
           },
           onError: (error) {
-            print("❌ Anomaly EventChannel error: $error");
+            debugPrint('❌ Anomaly EventChannel error: $error');
           },
         );
   }
@@ -623,7 +447,6 @@ class PacketService {
 
   // Native handlers
   static void _handleNativePacket(Map<String, dynamic> map) {
-    print("🔥 Flutter received packet: $map"); // Debug log
     _buffer.add(map);
   }
 
@@ -708,19 +531,12 @@ class PacketService {
   static void _flush() {
     if (_buffer.isEmpty) return;
     final batch = List<Map<String, dynamic>>.from(_buffer);
-    print("🚀 Flutter flushing ${batch.length} packets to UI"); // Debug log
     _buffer.clear();
     for (final m in batch) {
       try {
-        final packet = PacketInfo.fromMap(m);
-        print(
-          "✅ Created PacketInfo: ${packet.protocol} ${packet.sourceIp}:${packet.sourcePort} → ${packet.destinationIp}:${packet.destinationPort}",
-        );
-
-        _packetController.add(packet);
+        _packetController.add(PacketInfo.fromMap(m));
       } catch (e) {
-        print("❌ Error creating PacketInfo from map: $e");
-        print("❌ Problematic map: $m");
+        debugPrint('❌ Error creating PacketInfo from map: $e');
       }
     }
   }
@@ -834,56 +650,73 @@ class PacketService {
 
 // ================= ENHANCED UI APP =================
 class PacketAnalyzerApp extends StatelessWidget {
-  const PacketAnalyzerApp({Key? key}) : super(key: key);
+  const PacketAnalyzerApp({super.key});
+
+  static ElevatedButtonThemeData _elevatedButtonTheme() => ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    ),
+  );
+
+  static const _cardTheme = CardThemeData(
+    elevation: 2,
+    margin: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(12)),
+    ),
+  );
+
+  static const _appBarTheme = AppBarTheme(
+    centerTitle: false,
+    elevation: 0,
+    scrolledUnderElevation: 1,
+  );
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Andronet by CipherSec',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme:
-            ColorScheme.fromSeed(
-              seedColor: const Color(0xFF1565C0),
-              brightness: Brightness.light,
-            ).copyWith(
-              surface: const Color(0xFFFAFBFC),
-              surfaceContainerHighest: const Color(0xFFF1F3F4),
-            ),
-        cardTheme: const CardThemeData(
-          elevation: 2,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
+    return Consumer<ThemeService>(
+      builder: (context, themeService, _) => MaterialApp(
+        title: 'Andronet by CipherSec',
+        debugShowCheckedModeBanner: false,
+        themeMode: themeService.themeMode,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme:
+              ColorScheme.fromSeed(
+                seedColor: const Color(0xFF1565C0),
+                brightness: Brightness.light,
+              ).copyWith(
+                surface: const Color(0xFFFAFBFC),
+                surfaceContainerHighest: const Color(0xFFF1F3F4),
+              ),
+          cardTheme: _cardTheme,
+          appBarTheme: _appBarTheme,
+          elevatedButtonTheme: _elevatedButtonTheme(),
+        ),
+        darkTheme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF1565C0),
+            brightness: Brightness.dark,
           ),
+          cardTheme: _cardTheme,
+          appBarTheme: _appBarTheme,
+          elevatedButtonTheme: _elevatedButtonTheme(),
         ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
-          scrolledUnderElevation: 1,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          ),
-        ),
+        home: const AuthWrapper(),
+        routes: {
+          '/setup-auth': (context) => const SetupAuthScreen(),
+          '/login': (context) => const LoginScreen(),
+          '/main': (context) => const PacketAnalyzerScreen(),
+        },
       ),
-      home: const AuthWrapper(),
-      routes: {
-        '/setup-auth': (context) => const SetupAuthScreen(),
-        '/login': (context) => const LoginScreen(),
-        '/main': (context) => const PacketAnalyzerScreen(),
-      },
     );
   }
 }
 
 class PacketAnalyzerScreen extends StatefulWidget {
-  const PacketAnalyzerScreen({Key? key}) : super(key: key);
+  const PacketAnalyzerScreen({super.key});
 
   @override
   State<PacketAnalyzerScreen> createState() => _PacketAnalyzerScreenState();
@@ -905,6 +738,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   NetworkMetrics? _metrics;
   String _selectedProtocolFilter = "ALL";
   bool _autoScroll = true;
+  bool _anomalyNotificationsEnabled = true;
 
   // COMMIT 11: calibration state for the 60-second adaptive learning period
   bool _isCalibrating = false;
@@ -939,7 +773,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   // Performance optimization
   Timer? _debounceTimer;
-  static const int _maxPackets = 1500;
+  int _maxPackets = 1500;
 
   @override
   void initState() {
@@ -1060,6 +894,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   void _handleAnomaly(Map<String, dynamic> data) {
     if (!mounted) return;
+    // "Anomaly notifications" setting only gates this popup — anomaly data
+    // itself is always recorded via _anomalySub above, never suppressed.
+    if (!_anomalyNotificationsEnabled) return;
 
     // COMMIT 5: suppress repeated SnackBar for same type+sourceIp within 45 s;
     // the packet's anomalyScore is set before this call so data is never lost
@@ -1461,7 +1298,9 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
       return;
     }
     try {
-      await Share.shareXFiles([XFile(path)], subject: 'AndroNet capture');
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(path)], subject: 'AndroNet capture'),
+      );
     } catch (e) {
       _showSnackBar('Share failed: $e', Colors.red, Icons.error);
     }
@@ -3202,7 +3041,7 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               children: [
                 _buildStatCard(
                   'Packets/sec',
-                  '${(_metrics?.packetsPerSecond ?? 0).toStringAsFixed(1)}',
+                  (_metrics?.packetsPerSecond ?? 0).toStringAsFixed(1),
                   Colors.cyan,
                 ),
                 const SizedBox(width: 12),
@@ -3925,6 +3764,31 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
             _buildSecurityOption('Rule Engine', true),
             _buildSecurityOption('Traffic Analysis', true),
             _buildSecurityOption('Protocol Inspection', true),
+            const Divider(height: 24),
+            const Text('App Lock:'),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.timer_outlined),
+              title: const Text('Auto-lock after'),
+              subtitle: Consumer<AuthenticationService>(
+                builder: (context, authService, _) =>
+                    Text('${authService.autoLockTime} minutes — tap to change'),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _showAutoLockPicker();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.password),
+              title: const Text('Change PIN / Password / Pattern'),
+              onTap: () {
+                Navigator.pop(context);
+                _startChangeCredentialFlow();
+              },
+            ),
           ],
         ),
         actions: [
@@ -3935,6 +3799,138 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         ],
       ),
     );
+  }
+
+  static const List<int> _autoLockOptions = [1, 5, 15, 30, 60];
+
+  void _showAutoLockPicker() {
+    final authService = Provider.of<AuthenticationService>(context, listen: false);
+    showDialog<int>(
+      context: context,
+      builder: (pickerContext) => SimpleDialog(
+        title: const Text('Auto-lock after'),
+        children: [
+          RadioGroup<int>(
+            groupValue: authService.autoLockTime,
+            onChanged: (value) => Navigator.pop(pickerContext, value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: _autoLockOptions
+                  .map(
+                    (option) => RadioListTile<int>(
+                      title: Text('$option minute${option == 1 ? '' : 's'}'),
+                      value: option,
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    ).then((chosen) {
+      if (chosen != null) authService.setAutoLockTime(chosen);
+    });
+  }
+
+  /// Re-verifies the user's current credential before letting them set a new
+  /// one — SetupAuthScreen alone would let anyone with the app already
+  /// unlocked silently overwrite the stored credential with no proof they
+  /// know the existing one.
+  Future<void> _startChangeCredentialFlow() async {
+    final authService = Provider.of<AuthenticationService>(context, listen: false);
+    final method = authService.currentAuthMethod;
+
+    if (method == AuthMethod.none) {
+      Navigator.pushNamed(context, '/setup-auth');
+      return;
+    }
+
+    final verified = await _promptCurrentCredential(authService, method);
+    if (verified && mounted) {
+      Navigator.pushNamed(context, '/setup-auth');
+    }
+  }
+
+  Future<bool> _promptCurrentCredential(
+    AuthenticationService authService,
+    AuthMethod method,
+  ) async {
+    if (method == AuthMethod.pattern) {
+      return _promptCurrentPattern(authService);
+    }
+
+    final controller = TextEditingController();
+    final isPin = method == AuthMethod.pin;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Confirm current ${isPin ? 'PIN' : 'password'}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          obscureText: true,
+          keyboardType: isPin ? TextInputType.number : TextInputType.text,
+          decoration: InputDecoration(hintText: isPin ? 'Current PIN' : 'Current password'),
+          onSubmitted: (_) => Navigator.pop(dialogContext, true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != true) return false;
+
+    final verified = isPin
+        ? await authService.authenticateWithPin(controller.text)
+        : await authService.authenticateWithPassword(controller.text);
+
+    if (!verified && mounted) {
+      _showSnackBar('Incorrect credential', Colors.red, Icons.error);
+    }
+    return verified;
+  }
+
+  Future<bool> _promptCurrentPattern(AuthenticationService authService) async {
+    List<int> pattern = [];
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Confirm current pattern'),
+          content: SizedBox(
+            width: 260,
+            height: 260,
+            child: PatternWidget(
+              selectedPattern: pattern,
+              onPatternChanged: (p) => setDialogState(() => pattern = p),
+              onPatternComplete: () => Navigator.pop(dialogContext, true),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true || pattern.length < 4) return false;
+
+    final verified = await authService.authenticateWithPattern(pattern);
+    if (!verified && mounted) {
+      _showSnackBar('Incorrect pattern', Colors.red, Icons.error);
+    }
+    return verified;
   }
 
   Widget _buildSecurityOption(String title, bool enabled) {
@@ -3954,67 +3950,139 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
     );
   }
 
+  static const List<int> _maxPacketsOptions = [500, 1000, 1500, 3000, 5000];
+
   void _showSettingsDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.settings, color: Colors.blue),
-            SizedBox(width: 8),
-            Text('Settings'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ListTile(
-              title: const Text('Auto-scroll packets'),
-              trailing: Switch(
-                value: _autoScroll,
-                onChanged: (value) {
-                  setState(() => _autoScroll = value);
-                  Navigator.pop(context);
-                },
-              ),
-              contentPadding: EdgeInsets.zero,
-            ),
-            ListTile(
-              title: const Text('Max packets limit'),
-              subtitle: Text('$_maxPackets packets'),
-              trailing: const Icon(Icons.info_outline),
-              contentPadding: EdgeInsets.zero,
-            ),
-            ListTile(
-              title: const Text('Anomaly notifications'),
-              trailing: Switch(
-                value: true,
-                onChanged: (value) {
-                  Navigator.pop(context);
-                },
-              ),
-              contentPadding: EdgeInsets.zero,
-            ),
-            // COMMIT 13: adaptive threshold debug panel
-            ListTile(
-              title: const Text('Adaptive Thresholds'),
-              subtitle: const Text('View current detection baselines'),
-              trailing: const Icon(Icons.chevron_right),
-              contentPadding: EdgeInsets.zero,
-              onTap: () {
-                Navigator.pop(context);
-                _showAdaptiveThresholdsPanel();
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.settings, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Settings'),
+            ],
           ),
-        ],
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                title: const Text('Theme'),
+                subtitle: Consumer<ThemeService>(
+                  builder: (context, themeService, _) => Text(switch (themeService.themeMode) {
+                    ThemeMode.light => 'Light — tap to change',
+                    ThemeMode.dark => 'Dark — tap to change',
+                    ThemeMode.system => 'Follow system — tap to change',
+                  }),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                contentPadding: EdgeInsets.zero,
+                onTap: () async {
+                  final themeService = Provider.of<ThemeService>(context, listen: false);
+                  final chosen = await showDialog<ThemeMode>(
+                    context: dialogContext,
+                    builder: (pickerContext) => SimpleDialog(
+                      title: const Text('Theme'),
+                      children: [
+                        RadioGroup<ThemeMode>(
+                          groupValue: themeService.themeMode,
+                          onChanged: (value) => Navigator.pop(pickerContext, value),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              RadioListTile<ThemeMode>(title: Text('Follow system'), value: ThemeMode.system),
+                              RadioListTile<ThemeMode>(title: Text('Light'), value: ThemeMode.light),
+                              RadioListTile<ThemeMode>(title: Text('Dark'), value: ThemeMode.dark),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (chosen != null) themeService.setThemeMode(chosen);
+                },
+              ),
+              ListTile(
+                title: const Text('Auto-scroll packets'),
+                trailing: Switch(
+                  value: _autoScroll,
+                  onChanged: (value) {
+                    setDialogState(() => _autoScroll = value);
+                    setState(() {});
+                  },
+                ),
+                contentPadding: EdgeInsets.zero,
+              ),
+              ListTile(
+                title: const Text('Max packets limit'),
+                subtitle: Text('$_maxPackets packets — tap to change'),
+                trailing: const Icon(Icons.chevron_right),
+                contentPadding: EdgeInsets.zero,
+                onTap: () async {
+                  final chosen = await showDialog<int>(
+                    context: dialogContext,
+                    builder: (pickerContext) => SimpleDialog(
+                      title: const Text('Max packets limit'),
+                      children: [
+                        RadioGroup<int>(
+                          groupValue: _maxPackets,
+                          onChanged: (value) =>
+                              Navigator.pop(pickerContext, value),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: _maxPacketsOptions
+                                .map(
+                                  (option) => RadioListTile<int>(
+                                    title: Text('$option packets'),
+                                    value: option,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (chosen != null) {
+                    setDialogState(() => _maxPackets = chosen);
+                    setState(() {});
+                  }
+                },
+              ),
+              ListTile(
+                title: const Text('Anomaly notifications'),
+                subtitle: const Text('Show a popup when a new anomaly fires'),
+                trailing: Switch(
+                  value: _anomalyNotificationsEnabled,
+                  onChanged: (value) {
+                    setDialogState(() => _anomalyNotificationsEnabled = value);
+                    setState(() {});
+                  },
+                ),
+                contentPadding: EdgeInsets.zero,
+              ),
+              // COMMIT 13: adaptive threshold debug panel
+              ListTile(
+                title: const Text('Adaptive Thresholds'),
+                subtitle: const Text('View current detection baselines'),
+                trailing: const Icon(Icons.chevron_right),
+                contentPadding: EdgeInsets.zero,
+                onTap: () {
+                  Navigator.pop(dialogContext);
+                  _showAdaptiveThresholdsPanel();
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -69,3 +69,9 @@ scripts/*.log
 
 # Release artifacts (iOS)
 *.ipa
+
+# Release signing — never commit the real keystore or its passwords.
+# See android/key.properties.example for the template.
+/android/key.properties
+*.jks
+*.keystore

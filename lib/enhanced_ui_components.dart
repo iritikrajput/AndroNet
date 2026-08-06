@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'models.dart';
 
 // Enhanced UI Components for Advanced Features
@@ -9,7 +8,7 @@ import 'models.dart';
 class EnhancedPacketCard extends StatelessWidget {
   final PacketInfo packet;
 
-  const EnhancedPacketCard({Key? key, required this.packet}) : super(key: key);
+  const EnhancedPacketCard({super.key, required this.packet});
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +24,7 @@ class EnhancedPacketCard extends StatelessWidget {
         side: BorderSide(
           color: securityLevel > 0
               ? _getSecurityColor(securityLevel)
-              : packet.directionColor.withOpacity(0.3),
+              : packet.directionColor.withValues(alpha: 0.3),
           width: securityLevel > 0 ? 2 : 1,
         ),
       ),
@@ -47,9 +46,9 @@ class EnhancedPacketCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: protocolColor.withOpacity(0.1),
+                      color: protocolColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: protocolColor.withOpacity(0.3)),
+                      border: Border.all(color: protocolColor.withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -81,7 +80,7 @@ class EnhancedPacketCard extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: packet.directionColor.withOpacity(0.1),
+                      color: packet.directionColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(
@@ -118,7 +117,7 @@ class EnhancedPacketCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: _getSecurityColor(
                           securityLevel,
-                        ).withOpacity(0.1),
+                        ).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
                           color: _getSecurityColor(securityLevel),
@@ -158,7 +157,7 @@ class EnhancedPacketCard extends StatelessWidget {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.1),
+                        color: Colors.purple.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: Colors.purple),
                       ),
@@ -193,7 +192,7 @@ class EnhancedPacketCard extends StatelessWidget {
                       fontSize: 11,
                       color: Theme.of(
                         context,
-                      ).colorScheme.onSurface.withOpacity(0.6),
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -201,6 +200,33 @@ class EnhancedPacketCard extends StatelessWidget {
               ),
 
               const SizedBox(height: 12),
+
+              // Owning app (if resolved via ConnectivityManager.getConnectionOwnerUid)
+              if (packet.owningApp != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.apps,
+                        size: 16,
+                        color: Colors.deepPurple.shade300,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          packet.owningApp!,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.deepPurple.shade300,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
               // Domain Name (if available)
               if (packet.domainFriendly != null)
@@ -288,7 +314,7 @@ class EnhancedPacketCard extends StatelessWidget {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
+                        color: Colors.orange.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: Colors.orange),
                       ),
@@ -313,7 +339,7 @@ class EnhancedPacketCard extends StatelessWidget {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.1),
+                        color: Colors.red.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: Colors.red),
                       ),
@@ -514,8 +540,7 @@ class EnhancedPacketCard extends StatelessWidget {
 class EnhancedPacketDetailsDialog extends StatefulWidget {
   final PacketInfo packet;
 
-  const EnhancedPacketDetailsDialog({Key? key, required this.packet})
-    : super(key: key);
+  const EnhancedPacketDetailsDialog({super.key, required this.packet});
 
   @override
   State<EnhancedPacketDetailsDialog> createState() =>
@@ -573,7 +598,7 @@ class _EnhancedPacketDetailsDialogState
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [protocolColor.withOpacity(0.8), protocolColor],
+          colors: [protocolColor.withValues(alpha: 0.8), protocolColor],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -587,7 +612,7 @@ class _EnhancedPacketDetailsDialogState
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -612,7 +637,7 @@ class _EnhancedPacketDetailsDialogState
                 Text(
                   '${widget.packet.appName ?? widget.packet.protocol} • ${widget.packet.displayDirection} • ${widget.packet.formattedTime}',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 12,
                   ),
                 ),
@@ -752,7 +777,7 @@ class _EnhancedPacketDetailsDialogState
             const Spacer(),
             Container(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceVariant,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -795,7 +820,7 @@ class _EnhancedPacketDetailsDialogState
           decoration: BoxDecoration(
             color: Theme.of(
               context,
-            ).colorScheme.surfaceVariant.withOpacity(0.3),
+            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -884,9 +909,9 @@ class _EnhancedPacketDetailsDialogState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.purple.withOpacity(0.05),
+        color: Colors.purple.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.purple.withOpacity(0.3)),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -906,9 +931,9 @@ class _EnhancedPacketDetailsDialogState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.05),
+        color: Colors.green.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.green.withOpacity(0.3)),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -928,9 +953,9 @@ class _EnhancedPacketDetailsDialogState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.05),
+        color: Colors.blue.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -960,7 +985,7 @@ class _EnhancedPacketDetailsDialogState
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.purple.withOpacity(0.2)),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -988,7 +1013,7 @@ class _EnhancedPacketDetailsDialogState
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.green.withOpacity(0.2)),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -1031,7 +1056,7 @@ class _EnhancedPacketDetailsDialogState
           decoration: BoxDecoration(
             color: Theme.of(
               context,
-            ).colorScheme.surfaceVariant.withOpacity(0.3),
+            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -1173,8 +1198,9 @@ class _EnhancedPacketDetailsDialogState
   String _getAnomalyDetectionMethod(PacketInfo packet) {
     if (packet.anomalyScore != null) {
       // Determine which ML algorithm detected the anomaly
-      if (packet.protocol == 'TCP' && packet.flags != null)
+      if (packet.protocol == 'TCP' && packet.flags != null) {
         return 'Connection Pattern Analysis';
+      }
       if (packet.size > 10000) return 'Statistical Size Analysis';
       if (packet.payloadAnalysis?['entropy'] != null) return 'Entropy Analysis';
       return 'Behavioral Analysis';
@@ -1402,7 +1428,7 @@ class _EnhancedPacketDetailsDialogState
               height: 1.5,
             ),
           );
-        }).toList(),
+        }),
 
         // Body separator
         if (bodyLines.isNotEmpty) ...[
@@ -1456,7 +1482,7 @@ class _ViewToggleButton extends StatelessWidget {
             fontWeight: FontWeight.bold,
             color: isSelected
                 ? Colors.white
-                : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
           ),
         ),
       ),
@@ -1471,19 +1497,19 @@ class AnomalyDetectionPanel extends StatelessWidget {
   final VoidCallback onClearAnomalies;
 
   const AnomalyDetectionPanel({
-    Key? key,
+    super.key,
     required this.anomalies,
     required this.onClearAnomalies,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.05),
+        color: Colors.red.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withOpacity(0.3)),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1552,7 +1578,7 @@ class AnomalyDetectionPanel extends StatelessWidget {
                 Text(
                   anomaly.description,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 10,
                   ),
                 ),
@@ -1561,7 +1587,7 @@ class AnomalyDetectionPanel extends StatelessWidget {
           ),
           Text(
             anomaly.timestamp.toString(),
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 9),
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 9),
           ),
         ],
       ),
@@ -1604,8 +1630,7 @@ class AnomalyDetectionPanel extends StatelessWidget {
 class FileCarvingPanel extends StatelessWidget {
   final Map<String, dynamic> payloadAnalysis;
 
-  const FileCarvingPanel({Key? key, required this.payloadAnalysis})
-    : super(key: key);
+  const FileCarvingPanel({super.key, required this.payloadAnalysis});
 
   @override
   Widget build(BuildContext context) {
@@ -1615,9 +1640,9 @@ class FileCarvingPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.purple.withOpacity(0.05),
+        color: Colors.purple.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.purple.withOpacity(0.3)),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1673,7 +1698,7 @@ class FileCarvingPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.purple.withOpacity(0.2)),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -1712,7 +1737,7 @@ class FileCarvingPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.green.withOpacity(0.2)),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -1740,8 +1765,9 @@ class FileCarvingPanel extends StatelessWidget {
     if (mimeType.startsWith('video/')) return Icons.video_file;
     if (mimeType.startsWith('audio/')) return Icons.audio_file;
     if (mimeType == 'application/pdf') return Icons.picture_as_pdf;
-    if (mimeType.contains('zip') || mimeType.contains('rar'))
+    if (mimeType.contains('zip') || mimeType.contains('rar')) {
       return Icons.archive;
+    }
     if (mimeType.startsWith('text/')) return Icons.text_snippet;
     if (mimeType.contains('executable')) return Icons.computer;
 
@@ -1755,8 +1781,9 @@ class FileCarvingPanel extends StatelessWidget {
     if (mimeType.startsWith('video/')) return Colors.purple;
     if (mimeType.startsWith('audio/')) return Colors.green;
     if (mimeType == 'application/pdf') return Colors.red;
-    if (mimeType.contains('zip') || mimeType.contains('rar'))
+    if (mimeType.contains('zip') || mimeType.contains('rar')) {
       return Colors.orange;
+    }
     if (mimeType.startsWith('text/')) return Colors.teal;
     if (mimeType.contains('executable')) return Colors.red;
 

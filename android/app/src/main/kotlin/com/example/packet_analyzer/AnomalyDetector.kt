@@ -206,6 +206,7 @@ object AnomalyDetector {
             if (protocol == "TCP" && destPort > 0) detectPortScan(sourceIp, destPort, destIp)
             if (protocol == "TCP" && flags.contains("SYN") && !flags.contains("ACK")) detectSynFlood(destIp)
             if (protocol == "TCP" && flags.contains("SYN")) detectConnectionFlood(sourceIp)
+            if (protocol == "TCP" && flags.isNotEmpty()) detectMalformedTcpFlags(sourceIp, destIp, flags)
             if (protocol == "UDP" && destPort == 53) {
                 val dnsData = packetInfo["dnsData"] as? Map<String, String>
                 detectDnsTunneling(dnsData?.get("queryName") ?: "")
@@ -505,6 +506,38 @@ object AnomalyDetector {
         }
     }
 
+    /**
+     * SYN+FIN and SYN+RST are illegal TCP flag combinations under RFC 9293 —
+     * no legitimate stack ever sets them together. Crafted packets with these
+     * combinations are a long-standing firewall/IDS evasion and stack-fingerprinting
+     * technique (e.g. "SYN/FIN scanning"). This was previously unreachable: the
+     * "flags" field it depends on was never populated on the VPN-mode capture
+     * path (see ZdtunVpnService.extractTcpFlags), only on rooted libpcap mode.
+     */
+    private fun detectMalformedTcpFlags(sourceIp: String, destIp: String, flags: String) {
+        val hasSyn = flags.contains("SYN")
+        val hasFin = flags.contains("FIN")
+        val hasRst = flags.contains("RST")
+        if (!hasSyn || (!hasFin && !hasRst)) return
+
+        val now = System.currentTimeMillis()
+        val cooldownKey = "malformed:$sourceIp"
+        val lastAlert = entropyAlertCooldown[cooldownKey] ?: 0L
+        if (now - lastAlert < ENTROPY_COOLDOWN_MS) return
+        entropyAlertCooldown[cooldownKey] = now
+
+        reportAnomaly(
+            Anomaly(
+                AnomalyType.MALFORMED_PACKET,
+                Severity.MEDIUM,
+                "Malformed TCP packet: illegal flag combination (${flags.trim()})",
+                sourceIp = sourceIp,
+                destinationIp = destIp,
+                details = mapOf("flags" to flags.trim())
+            )
+        )
+    }
+
     private fun detectArpSpoofing(packetInfo: Map<String, Any>) {
         val senderIp = packetInfo["senderIp"] as? String ?: return
         val senderMac = packetInfo["senderMac"] as? String ?: return
@@ -577,5 +610,14 @@ object AnomalyDetector {
         portScans.entries.removeAll { now - it.value.lastSeen > 20000 }
         synFloodTracker.entries.removeAll { now - it.value.windowStart > 10000 }
         connectionTracker.entries.removeAll { now - it.value.windowStart > 10000 }
+        clearStaleEntropyCooldowns()
+
+        // highEntropyPacketCount/dnsHighEntropyCount have no per-entry timestamp
+        // (they're plain consecutive-hit counters keyed by source IP), so unlike
+        // the trackers above they can't be pruned by age — only bounded by size.
+        // Every long-running capture session accumulates one entry per unique
+        // source IP that ever produced high-entropy traffic, forever, otherwise.
+        if (highEntropyPacketCount.size > 500) highEntropyPacketCount.clear()
+        if (dnsHighEntropyCount.size > 500) dnsHighEntropyCount.clear()
     }
 }

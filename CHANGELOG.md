@@ -9,6 +9,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-08-06
+
+A full pass across the codebase: dead code removal, real bug fixes, dependency/toolchain
+modernization, security hardening, hot-path performance work, and new features. Verified with
+`flutter analyze` (0 issues), `flutter test` (25/25), `./gradlew :app:testDebugUnitTest` (106/106),
+and live on-device testing (VPN capture, IPv6, per-app attribution, dark mode).
+
+### ✨ Added
+- **Per-app traffic attribution** — resolves the installed app owning each TCP/UDP flow via
+  `ConnectivityManager.getConnectionOwnerUid` and shows it on every packet card. Something desktop
+  Wireshark has no equivalent of, since it doesn't run on the device whose traffic it inspects.
+- **Dark mode** — system/light/dark, persisted across launches (Settings → Theme).
+- **IPv6 support in VPN-mode capture** — `ZdtunVpnService` previously returned `null` for any
+  non-IPv4 packet, so IPv6 traffic was tunneled correctly but completely invisible to DPI, anomaly
+  detection, and PCAP logging. Now fully parsed (address, ports, TCP flags) and analyzed.
+  Confirmed live: IPv6 link-local multicast traffic now shows up correctly formatted
+  (`fe80::...` zero-compressed notation) in the packet stream.
+- **Malformed-TCP-packet detection** — flags illegal flag combinations (SYN+FIN, SYN+RST), a
+  known firewall/IDS evasion and stack-fingerprinting technique. Fills in the one `AnomalyType`
+  that previously existed in the model but was never actually produced.
+- **DNS-over-HTTPS (DoH) detection** — TLS connections whose SNI matches a known public DoH
+  resolver are now labeled `DoH` instead of generic `HTTPS`, surfacing a common technique for
+  bypassing on-path DNS monitoring.
+- **Change PIN/Password/Pattern** and **configurable auto-lock duration** (1/5/15/30/60 min),
+  both previously backed by working service methods with no UI path to reach them.
+- `.github/dependabot.yml` (pub, gradle, github-actions) and a CodeQL workflow for the
+  Kotlin/Java surface.
+
+### 🐛 Fixed
+- **TCP flags were never populated on the VPN-mode (unrooted, default) capture path at all** —
+  `ZdtunVpnService.parseIpv4Packet`/`parseIpv6Packet` never extracted them, meaning SYN-flood and
+  connection-flood detection silently never fired for anyone using the app's zero-setup default
+  mode, despite being fully implemented and README-advertised as working. Only rooted
+  libpcap-mode users ever got real detection for these two. Now extracted on both paths.
+- **PCAP annotated-packet timestamps were corrupted** — `PcapWriter.nativeWriteAnnotatedPacket`
+  treated a millisecond value from Kotlin as if it were already nanoseconds with no conversion, so
+  every anomaly-flagged packet (exactly the ones an analyst cares about) got written with a
+  timestamp near the 1970 epoch. Fixed to mirror the working `nativeWritePacket` path.
+- **A live, UI-reachable capture path silently dropped all packets** — "Enhanced" mode
+  (`CaptureService`) never wrote packets back to the TUN device, blackholing the device's internet
+  connection whenever selected, and never ran DPI/anomaly detection/PCAP logging at all. Retired;
+  enhanced mode now shares the same proven `ZdtunVpnService` pipeline as VPN mode.
+- **`test/widget_test.dart` was broken** — asserted stale UI text and pumped the app without its
+  required `Provider` ancestor, so `flutter test` (and CI's Kotlin/Dart test steps) had been
+  failing on every push/PR since at least May 2026. CI is green again; PR checks now fail on
+  `flutter analyze` warnings, not just hard errors, so this can't silently regress.
+- `PcapWriter.nativeWriteAnnotatedPacket`'s JNI signature mismatch (`Boolean` in Kotlin vs `void`
+  in C) — the returned success/failure value was previously meaningless.
+- PCAP file-count rotation (`max_files`) was a no-op that only logged; old rotated captures now
+  actually get pruned.
+- `PacketInfo.fromMap`'s numeric field parsing threw (rather than falling back) for non-null,
+  non-numeric values (e.g. a stringified port) because `as num?` throws instead of returning null
+  for a type mismatch — caught by a new unit test, fixed with a proper safe-coercion helper.
+- `RuleEngine`'s DNS-tunneling rule's `DomainMatches` condition was defined and used by the
+  default rule set but never handled by the evaluator, silently always `false` — caught by a new
+  Kotlin unit test, fixed.
+- Root detection was implemented three different, inconsistent ways across the codebase (including
+  a fragile unquoted `su -c 'id'` shell string); consolidated into one `RootChecker`.
+- Settings dialog: "Auto-scroll" no longer closes the whole dialog on every toggle; "Anomaly
+  notifications" and "Max packets limit" are now real, working, persisted-for-the-session controls
+  instead of a hardcoded switch and a display-only label.
+
+### 🔒 Security
+- **Release APKs are now properly signed** instead of using the public Android debug key —
+  `android/key.properties` (gitignored) drives local/CI signing with a documented GitHub Actions
+  secrets flow (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`); `release.yml`
+  now cryptographically verifies the built APK's signing certificate before publishing.
+- **PIN/password/pattern hashing switched from unsalted SHA-256 to salted PBKDF2-HMAC-SHA256**
+  (120,000 iterations) — the old scheme meant all 10,000 possible 4-digit PIN hashes could be
+  precomputed in microseconds, notable given the app explicitly targets rooted devices. Existing
+  installs upgrade transparently on next successful login, no forced re-setup.
+- `generateTestAnomaly` (injects a fake anomaly into the live detection stream) is now compiled
+  out of release builds instead of always being a reachable MethodChannel endpoint.
+- Removed sensitive per-packet debug logging (source/dest IPs, domains, full packet maps) that ran
+  unconditionally on every packet, including in release builds, on a tool whose entire purpose is
+  capturing potentially sensitive traffic metadata.
+
+### ⚡ Performance
+- `RuleEngine`'s per-rule packet history used `ArrayList.removeAt(0)` for eviction — an O(n) shift
+  on every packet, across up to 10 rules simultaneously, once the 1000-entry cap filled. Switched
+  to `ArrayDeque` for O(1) eviction.
+- `SignatureDatabase` (18 signatures) and `RuleEngine` (10 rules) each independently re-decoded the
+  same packet payload bytes to a string per check — now decoded once per packet and shared.
+  `PayloadAnalyzer`'s file-carving/keyword scans are now skipped entirely for known-encrypted
+  traffic (TLS/QUIC/HTTPS), where they could only ever produce noise, not signal.
+- Packet hex-dump formatting used to format the *entire* payload (up to tens of KB) before
+  truncating the display string — now sliced to the display bound first.
+- `AnomalyDetector`'s entropy-consecutive-hit counters (`highEntropyPacketCount`,
+  `dnsHighEntropyCount`) were the only trackers never included in the periodic cleanup sweep,
+  growing by one entry per unique source IP for the life of a capture session — now bounded.
+
+### 🧹 Removed
+- ~5,700 lines of confirmed-dead Kotlin (12 files — six abandoned VPN-service implementations, plus
+  their now-orphaned helpers) and an entire second, never-built native C++ capture tree
+  (`android/app/src/main/cpp/`), verified dead by inspecting actual build output, not just
+  cross-referencing symbols.
+- Stray, misleading `build.gradle.kts`/`settings.gradle.kts` scaffolding (declared a different,
+  wrong package name than the live Groovy build files).
+- Duplicate `ProtocolStats`/`NetworkMetrics` class definitions in `main.dart` that silently shadowed
+  the real ones in `models.dart`, plus a dead module-level `MethodChannel` handler
+  (`initPacketListener`) that was unreachable the moment the main screen mounted, and several
+  `NativeBridge` methods with no caller.
+
+### 📦 Dependencies & Tooling
+- Gradle 8.10.2 → 8.14.3, AGP 8.7.3 → 8.11.2, Kotlin 2.1.0 → 2.2.21, compileSdk 36 → 37,
+  kotlinx-coroutines 1.7.3 → 1.11.0.
+- `fl_chart` 0.70 → 1.2, `flutter_secure_storage` 9 → 11, `local_auth` 2 → 3,
+  `permission_handler` 11 → 13, `share_plus` 10 → 13 (`Share.shareXFiles` →
+  `SharePlus.instance.share`), `flutter_lints` 5 → 6 — all breaking API changes at each major
+  fixed at the call site.
+
 ## [1.2.0] - 2026-05-21
 
 ### 🔧 Build & Install Fixes

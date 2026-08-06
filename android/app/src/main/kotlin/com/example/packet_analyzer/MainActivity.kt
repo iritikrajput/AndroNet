@@ -17,7 +17,9 @@ import io.flutter.plugin.common.EventChannel
 class MainActivity : FlutterFragmentActivity() {
     private val CHANNEL = "packet_analyzer"
     private val VPN_REQUEST_CODE = 1001
-    private var pendingVpnAction: String? = null  // "startVpn" or "startCapture"
+    // Both "startVpn" and "startCapture" (enhanced mode) share the ZdtunVpnService
+    // pipeline, so there's only one pending action to track after a permission grant.
+    private var pendingVpnAction: String? = null
     private var biometricPrompt: BiometricPrompt? = null
     private var pendingBiometricResult: MethodChannel.Result? = null
     // mainHandler ensures anomaly notifications are posted on the main thread for UI updates
@@ -132,17 +134,22 @@ class MainActivity : FlutterFragmentActivity() {
                         result.error("VPN_ERROR", e.message, null)
                     }
                 }
+                // "Enhanced" capture mode used to run through a second, half-built
+                // VPN pipeline (CaptureService) that silently dropped every packet
+                // instead of forwarding it — killing the device's internet connection
+                // whenever it was used. It's retired; enhanced mode now shares the
+                // same proven ZdtunVpnService + PacketAnalysisManager pipeline as
+                // "startVpn"/"stopVpn".
                 "startCapture" -> {
                     try {
                         val vpnIntent = VpnService.prepare(this)
                         if (vpnIntent != null) {
-                            pendingVpnAction = "startCapture"
+                            pendingVpnAction = "startVpn"
                             startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
                             result.success("VPN permission requested")
                         } else {
                             setupAnomalyListener()
-                            val intent = Intent(this, CaptureService::class.java)
-                            intent.action = "START_CAPTURE"
+                            val intent = Intent(this, ZdtunVpnService::class.java)
                             startService(intent)
                             startAnomalyDetection()
                             result.success("Enhanced capture started with anomaly detection")
@@ -158,8 +165,8 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "stopCapture" -> {
                     try {
-                        val intent = Intent(this, CaptureService::class.java)
-                        intent.action = "STOP_CAPTURE"
+                        val intent = Intent(this, ZdtunVpnService::class.java)
+                        intent.action = "STOP_VPN"
                         startService(intent)
                         stopAnomalyDetection()
                         result.success("Enhanced capture stopped")
@@ -268,9 +275,15 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success("Anomaly detection system reset")
                 }
                 "generateTestAnomaly" -> {
-                    // Generate a test anomaly for UI testing
-                    generateTestAnomaly()
-                    result.success("Test anomaly generated")
+                    // Debug-only: injects a fake anomaly into the live stream for UI
+                    // testing. Must never be reachable in release builds — it would be
+                    // indistinguishable from a real detection to anything downstream.
+                    if (BuildConfig.DEBUG) {
+                        generateTestAnomaly()
+                        result.success("Test anomaly generated")
+                    } else {
+                        result.error("DEBUG_ONLY", "generateTestAnomaly is unavailable in release builds", null)
+                    }
                 }
                 // COMMIT 12: expose adaptive threshold values to Flutter UI
                 "getThresholdStatus" -> {
@@ -477,14 +490,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun checkRootAccess(): Boolean {
-        return try {
-            val process = Runtime.getRuntime().exec("su -c 'id'")
-            process.waitFor() == 0
-        } catch (e: Exception) {
-            false
-        }
-    }
+    private fun checkRootAccess(): Boolean = RootChecker.isRooted()
 
     private fun startLibpcapCapture(result: MethodChannel.Result) {
         try {
@@ -523,24 +529,12 @@ class MainActivity : FlutterFragmentActivity() {
             if (resultCode == Activity.RESULT_OK) {
                 Log.i("AndroNet", "VPN permission granted — starting pending action: $pendingVpnAction")
                 try {
-                    when (pendingVpnAction) {
-                        "startVpn" -> {
-                            setupAnomalyListener()
-                            startService(Intent(this, ZdtunVpnService::class.java))
-                            startAnomalyDetection()
-                            mainHandler.post {
-                                methodChannel.invokeMethod("onVpnPermissionGranted", null)
-                            }
-                        }
-                        "startCapture" -> {
-                            setupAnomalyListener()
-                            val intent = Intent(this, CaptureService::class.java)
-                            intent.action = "START_CAPTURE"
-                            startService(intent)
-                            startAnomalyDetection()
-                            mainHandler.post {
-                                methodChannel.invokeMethod("onVpnPermissionGranted", null)
-                            }
+                    if (pendingVpnAction == "startVpn") {
+                        setupAnomalyListener()
+                        startService(Intent(this, ZdtunVpnService::class.java))
+                        startAnomalyDetection()
+                        mainHandler.post {
+                            methodChannel.invokeMethod("onVpnPermissionGranted", null)
                         }
                     }
                 } catch (e: Exception) {

@@ -111,21 +111,25 @@ Entropy score is displayed as a live badge (`E:x.x`) on each packet in the captu
 
 ### PCAP Export
 
-- Standard, Wireshark-compatible libpcap format
-- Microsecond timestamp precision
+- Standard pcapng format (RFC 7663) with nanosecond-resolution timestamps — natively readable by Wireshark, tcpdump, and tshark
 - Saved to `/sdcard/Download/AndroNet/`
-- Fully compatible with Wireshark, tcpdump, and tshark
+- Size- and duration-based file rotation with automatic pruning of old captures
 
 ### Protocol Intelligence
 
-Recognizes **65+ application protocols**, including HTTPS, DNS, SSH, FTP, SMTP, MySQL, PostgreSQL, MongoDB, Redis, SIP, RDP, and VNC.
+Recognizes **65+ application protocols**, including HTTPS, DNS, SSH, FTP, SMTP, MySQL, PostgreSQL, MongoDB, Redis, SIP, RDP, and VNC. DNS-over-HTTPS is detected by TLS SNI against known public resolvers, surfacing a common technique for bypassing on-path DNS monitoring.
+
+### Per-App Traffic Attribution
+
+Every TCP/UDP flow is resolved to the installed app that owns it (via `ConnectivityManager.getConnectionOwnerUid`) and shown inline on each packet — visibility a desktop packet analyzer can't offer, since it isn't running on the device whose traffic it's inspecting.
 
 ### Interface
 
 - **16 predefined, color-coded filters:** ALL, HTTP, HTTPS, DNS, TCP, UDP, TLS, QUIC, ICMP, DHCP, ARP, SSH, FTP, SMTP, POP3, IMAP
 - Live packet counts per filter (e.g. `HTTP (25)`)
 - Filters adapt to observed traffic and match on both transport and application layers
-- Enriched DPI detail inline — HTTP URLs/methods/status, DNS queries, TLS SNI, DHCP message types
+- Enriched DPI detail inline — HTTP URLs/methods/status, DNS queries, TLS SNI, DHCP message types, resolved owning app
+- Light, dark, and system-follow themes (Settings → Theme)
 
 ---
 
@@ -221,11 +225,12 @@ scripts/tag-release.ps1 1.0.0
 |---|---|
 | Flutter | 3.44.0 stable |
 | Dart SDK | 3.8.1+ |
-| Android Gradle Plugin | 8.7.3 |
-| Gradle Wrapper | 8.10.2 |
-| Kotlin | 2.1.0 |
-| NDK | 28.2.13433566 |
-| compileSdk / targetSdk | 36 |
+| Android Gradle Plugin | 8.11.2 |
+| Gradle Wrapper | 8.14.3 |
+| Kotlin | 2.2.21 |
+| NDK | 28.2.13676358 |
+| compileSdk | 37 |
+| targetSdk | 36 |
 | minSdk | 24 (Android 7.0) |
 
 > **16KB page alignment:** Android 15+ (API 35+) devices using 16KB memory pages require native libraries compiled with `-Wl,-z,max-page-size=16384` and packaged with `useLegacyPackaging = false`. Both flags are already applied to all `.so` targets (`zdtun_vpn`, `pcap_writer`, `pcap_capture`).
@@ -233,7 +238,7 @@ scripts/tag-release.ps1 1.0.0
 ### Prerequisites
 
 - Flutter SDK 3.44.0+
-- Android Studio with NDK 28.2.13433566
+- Android Studio with NDK 28.2.13676358
 - CMake 3.22.1+
 - Kali NetHunter (optional — required only for libpcap mode)
 
@@ -359,7 +364,12 @@ Attach `bug-report.zip` when opening a GitHub issue.
 - [ ] Kernel-level capture path for rooted devices, reducing capture overhead below current libpcap-mode figures
 - [ ] Expanded anomaly-detection benchmarking (labeled traffic dataset, precision/recall reporting)
 - [ ] Cross-device portability testing across the NetHunter-supported device matrix
-- [ ] Historical session storage and diffing between captures
+- [ ] Historical session storage and diffing between captures (sqflite is already a dependency, currently unused for this)
+- [ ] In-app packet search across IP/domain/payload/app, beyond the existing protocol filters
+- [ ] Custom detection rules authored from the UI (`RuleEngine.addRule`/`SignatureDatabase.addSignature` already support it programmatically; no UI path yet)
+- [ ] Threat-intel IP/domain blocklist import, replacing the small hardcoded sample list
+- [ ] CSV/JSON packet export alongside PCAP
+- [ ] Real traffic-over-time and anomaly-frequency charts (fl_chart is already a dependency, currently underused)
 
 ---
 

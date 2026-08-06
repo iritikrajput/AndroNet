@@ -39,13 +39,16 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze --no-fatal-infos
 
       - name: Run Dart unit tests
         run: flutter test
 
       - name: Run Kotlin unit tests
-        run: cd android && ./gradlew test
+        # Scoped to :app — an unscoped `test` cascades into every Flutter
+        # plugin dependency's own bundled unit tests too, which aren't ours
+        # to keep green and can fail CI for reasons unrelated to this app.
+        run: cd android && ./gradlew :app:testDebugUnitTest
 
       - name: Build debug APK (verify compilation)
         run: flutter build apk --debug --target-platform android-arm64

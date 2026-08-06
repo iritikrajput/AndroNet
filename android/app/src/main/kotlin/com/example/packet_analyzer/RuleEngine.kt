@@ -86,7 +86,10 @@ object RuleEngine {
         var lastTriggered: Long = 0,
         var triggerCount: Int = 0,
         val eventHistory: MutableList<Long> = mutableListOf(),
-        val packetHistory: MutableList<Map<String, Any>> = mutableListOf()
+        // ArrayDeque (not ArrayList) — removeFirst() below is O(1); an
+        // ArrayList.removeAt(0) here would shift up to 1000 elements on
+        // every single packet, times 10 rules, once history fills up.
+        val packetHistory: ArrayDeque<Map<String, Any>> = ArrayDeque()
     )
 
     init {
@@ -341,6 +344,10 @@ object RuleEngine {
      */
     fun evaluateRules(packetInfo: Map<String, Any>, payload: ByteArray?): List<RuleMatch> {
         val matches = mutableListOf<RuleMatch>()
+        // Decode once per packet, not once per rule/condition — up to 10
+        // rules each with their own PayloadContains/PayloadMatches
+        // conditions used to independently re-decode the same bytes.
+        val payloadStr = payload?.let { String(it, Charsets.ISO_8859_1) }
 
         for (rule in rules) {
             if (!rule.enabled) continue
@@ -351,11 +358,11 @@ object RuleEngine {
                 // Add packet to history
                 state.packetHistory.add(packetInfo)
                 if (state.packetHistory.size > 1000) {
-                    state.packetHistory.removeAt(0)
+                    state.packetHistory.removeFirst()
                 }
 
                 // Evaluate conditions
-                if (evaluateConditions(rule.conditions, packetInfo, payload, state)) {
+                if (evaluateConditions(rule.conditions, packetInfo, payload, payloadStr, state)) {
                     state.lastTriggered = System.currentTimeMillis()
                     state.triggerCount++
                     state.eventHistory.add(System.currentTimeMillis())
@@ -383,11 +390,12 @@ object RuleEngine {
         conditions: List<Condition>,
         packetInfo: Map<String, Any>,
         payload: ByteArray?,
+        payloadStr: String?,
         state: RuleState
     ): Boolean {
         // AND logic for top-level conditions
         return conditions.all { condition ->
-            evaluateCondition(condition, packetInfo, payload, state)
+            evaluateCondition(condition, packetInfo, payload, payloadStr, state)
         }
     }
 
@@ -395,6 +403,7 @@ object RuleEngine {
         condition: Condition,
         packetInfo: Map<String, Any>,
         payload: ByteArray?,
+        payloadStr: String?,
         state: RuleState
     ): Boolean {
         return when (condition) {
@@ -404,18 +413,19 @@ object RuleEngine {
             is Condition.IpEquals -> evaluateIpEquals(condition, packetInfo)
             is Condition.FlagsContain -> evaluateFlagsContain(condition, packetInfo)
             is Condition.PayloadSize -> evaluatePayloadSize(condition, payload)
-            is Condition.PayloadContains -> evaluatePayloadContains(condition, payload)
-            is Condition.PayloadMatches -> evaluatePayloadMatches(condition, payload)
+            is Condition.PayloadContains -> evaluatePayloadContains(condition, payloadStr)
+            is Condition.PayloadMatches -> evaluatePayloadMatches(condition, payloadStr)
             is Condition.HeaderExists -> evaluateHeaderExists(condition, packetInfo)
             is Condition.HeaderEquals -> evaluateHeaderEquals(condition, packetInfo)
             is Condition.HeaderMatches -> evaluateHeaderMatches(condition, packetInfo)
             is Condition.PacketRate -> evaluatePacketRate(condition, state)
             is Condition.UniqueDestinations -> evaluateUniqueDestinations(condition, state)
-            is Condition.And -> condition.conditions.all { evaluateCondition(it, packetInfo, payload, state) }
-            is Condition.Or -> condition.conditions.any { evaluateCondition(it, packetInfo, payload, state) }
-            is Condition.Not -> !evaluateCondition(condition.condition, packetInfo, payload, state)
+            is Condition.And -> condition.conditions.all { evaluateCondition(it, packetInfo, payload, payloadStr, state) }
+            is Condition.Or -> condition.conditions.any { evaluateCondition(it, packetInfo, payload, payloadStr, state) }
+            is Condition.Not -> !evaluateCondition(condition.condition, packetInfo, payload, payloadStr, state)
             is Condition.DomainEquals -> evaluateDomainEquals(condition, packetInfo)
             is Condition.DomainContains -> evaluateDomainContains(condition, packetInfo)
+            is Condition.DomainMatches -> evaluateDomainMatches(condition, packetInfo)
             is Condition.HttpMethod -> evaluateHttpMethod(condition, packetInfo)
             is Condition.UrlContains -> evaluateUrlContains(condition, packetInfo)
             is Condition.UrlMatches -> evaluateUrlMatches(condition, packetInfo)
@@ -470,15 +480,13 @@ object RuleEngine {
         return compareWithOperator(size, condition.size, condition.operator)
     }
 
-    private fun evaluatePayloadContains(condition: Condition.PayloadContains, payload: ByteArray?): Boolean {
-        if (payload == null) return false
-        val payloadStr = String(payload, Charsets.ISO_8859_1).lowercase()
-        return payloadStr.contains(condition.pattern.lowercase())
+    private fun evaluatePayloadContains(condition: Condition.PayloadContains, payloadStr: String?): Boolean {
+        if (payloadStr == null) return false
+        return payloadStr.lowercase().contains(condition.pattern.lowercase())
     }
 
-    private fun evaluatePayloadMatches(condition: Condition.PayloadMatches, payload: ByteArray?): Boolean {
-        if (payload == null) return false
-        val payloadStr = String(payload, Charsets.ISO_8859_1)
+    private fun evaluatePayloadMatches(condition: Condition.PayloadMatches, payloadStr: String?): Boolean {
+        if (payloadStr == null) return false
         return condition.regex.containsMatchIn(payloadStr)
     }
 
@@ -531,6 +539,11 @@ object RuleEngine {
     private fun evaluateDomainContains(condition: Condition.DomainContains, packetInfo: Map<String, Any>): Boolean {
         val domain = packetInfo["domain"]?.toString() ?: ""
         return domain.contains(condition.substring, ignoreCase = true)
+    }
+
+    private fun evaluateDomainMatches(condition: Condition.DomainMatches, packetInfo: Map<String, Any>): Boolean {
+        val domain = packetInfo["domain"]?.toString() ?: ""
+        return condition.regex.containsMatchIn(domain)
     }
 
     private fun evaluateHttpMethod(condition: Condition.HttpMethod, packetInfo: Map<String, Any>): Boolean {

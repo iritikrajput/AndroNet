@@ -43,16 +43,7 @@ class NetHunterService : Service() {
         createNotificationChannel()
     }
 
-    private fun isRooted(): Boolean {
-        return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-            val result = process.inputStream.bufferedReader().readLine() ?: ""
-            process.destroy()
-            result.contains("uid=0")
-        } catch (e: Exception) {
-            false
-        }
-    }
+    private fun isRooted(): Boolean = RootChecker.isRooted()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action

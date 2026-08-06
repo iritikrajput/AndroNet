@@ -8,12 +8,12 @@ class PatternWidget extends StatefulWidget {
   final bool isSetupMode;
 
   const PatternWidget({
-    Key? key,
+    super.key,
     required this.selectedPattern,
     required this.onPatternChanged,
     this.onPatternComplete,
     this.isSetupMode = false,
-  }) : super(key: key);
+  });
 
   @override
   State<PatternWidget> createState() => _PatternWidgetState();
@@ -166,7 +166,7 @@ class PatternPainter extends CustomPainter {
     if (selectedPattern.length < 2) return;
 
     final paint = Paint()
-      ..color = primaryColor.withOpacity(0.6)
+      ..color = primaryColor.withValues(alpha: 0.6)
       ..strokeWidth = 4.0
       ..strokeCap = StrokeCap.round;
 
@@ -191,7 +191,7 @@ class PatternPainter extends CustomPainter {
 
       // Draw outer circle
       final outerPaint = Paint()
-        ..color = isSelected ? primaryColor : primaryColor.withOpacity(0.3)
+        ..color = isSelected ? primaryColor : primaryColor.withValues(alpha: 0.3)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.0;
 
@@ -228,7 +228,7 @@ class PatternPainter extends CustomPainter {
         );
       } else {
         final innerPaint = Paint()
-          ..color = primaryColor.withOpacity(0.3)
+          ..color = primaryColor.withValues(alpha: 0.3)
           ..style = PaintingStyle.fill;
 
         canvas.drawCircle(position, 4, innerPaint);

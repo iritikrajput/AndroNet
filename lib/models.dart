@@ -3,10 +3,28 @@ import 'dart:math' as math;
 
 // ================= DATA MODELS =================
 
+/// Safely coerces a native-bridge value to an int. Values may arrive as
+/// int, double, or String depending on the platform-channel path — `as
+/// num?` throws (rather than returning null) for a non-null non-num value
+/// like a String, which used to skip the int.tryParse fallback entirely.
+int _asInt(dynamic v) {
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? 0;
+}
+
+/// As [_asInt], but returns null (rather than 0) when [v] is absent/unparsable
+/// — used for optional numeric fields where "unknown" and "zero" mean
+/// different things (e.g. anomalyScore).
+double? _asDoubleOrNull(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString());
+}
+
 class PacketInfo {
   final String sourceIp, destinationIp, protocol, timestamp, payload;
   final int sourcePort, destinationPort, size;
-  final String? direction, flags, appName;
+  final String? direction, flags, appName, owningApp;
   final Map<String, dynamic>? dpiData;
   final Map<String, dynamic>? payloadAnalysis;
   final double? anomalyScore;
@@ -31,6 +49,7 @@ class PacketInfo {
     this.direction,
     this.flags,
     this.appName,
+    this.owningApp,
     this.dpiData,
     this.payloadAnalysis,
     this.anomalyScore,
@@ -89,16 +108,10 @@ class PacketInfo {
           map['destinationIp']?.toString() ??
           map['destinationAddress']?.toString() ??
           '0.0.0.0',
-      sourcePort: (map['sourcePort'] as num?)?.toInt() ??
-          int.tryParse(map['sourcePort']?.toString() ?? '') ??
-          0,
-      destinationPort: (map['destinationPort'] as num?)?.toInt() ??
-          int.tryParse(map['destinationPort']?.toString() ?? '') ??
-          0,
+      sourcePort: _asInt(map['sourcePort']),
+      destinationPort: _asInt(map['destinationPort']),
       protocol: map['protocol']?.toString() ?? 'UNK',
-      size: (map['size'] as num?)?.toInt() ??
-          int.tryParse(map['size']?.toString() ?? '') ??
-          0,
+      size: _asInt(map['size']),
       timestamp:
           map['timestamp']?.toString() ??
           DateTime.now().millisecondsSinceEpoch.toString(),
@@ -106,14 +119,19 @@ class PacketInfo {
       direction: map['direction']?.toString(),
       flags: map['flags']?.toString(),
       appName: map['appName']?.toString(),
+      // Native side sends "" (not null) when the owning app couldn't be
+      // resolved — normalize to null so the UI can just check for presence.
+      owningApp: (map['owningApp']?.toString().isNotEmpty ?? false)
+          ? map['owningApp'].toString()
+          : null,
       dpiData: dpiFields.isNotEmpty ? dpiFields : null,
       payloadAnalysis: safeMap(map['payloadAnalysis']),
       httpData: safeMap(map['httpData']),
       dnsData: safeMap(map['dnsData']),
       tlsData: safeMap(map['tlsData']),
       quicData: safeMap(map['quicData']),
-      anomalyScore: (map['anomalyScore'] as num?)?.toDouble(),
-      entropyScore: (map['entropyScore'] as num?)?.toDouble(),
+      anomalyScore: _asDoubleOrNull(map['anomalyScore']),
+      entropyScore: _asDoubleOrNull(map['entropyScore']),
       domain: map['domain']?.toString(),
       domainFriendly: map['domainFriendly']?.toString(),
       sourceDomain: map['sourceDomain']?.toString(),

@@ -22,9 +22,23 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+// Release signing: reads android/key.properties (gitignored, never
+// committed — see key.properties.example for the template). Falls back to
+// debug signing when absent, so plain local/dev builds and CI runs without
+// the release secrets configured still work; only `flutter build apk
+// --release` for actual distribution needs it populated.
+def keystorePropertiesFile = rootProject.file('key.properties')
+def keystoreProperties = new Properties()
+def hasReleaseSigning = keystorePropertiesFile.exists()
+if (hasReleaseSigning) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+
 android {
     namespace 'com.example.packet_analyzer'
-    compileSdk 36
+    compileSdk 37
     ndkVersion "28.2.13676358"
 
     compileOptions {
@@ -36,9 +50,18 @@ android {
         jvmTarget = '1.8'
     }
 
+    buildFeatures {
+        buildConfig true
+    }
+
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+        }
+    }
+
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
-        main.jniLibs.srcDirs += 'libs' // Ensure .so from tun2socks.aar is available
     }
 
     defaultConfig {
@@ -70,9 +93,20 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -87,12 +121,6 @@ flutter {
     source '../..'
 }
 
-repositories {
-    flatDir {
-        dirs 'libs' // Where tun2socks.aar lives
-    }
-}
-
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation 'androidx.multidex:multidex:2.0.1'
@@ -105,17 +133,6 @@ dependencies {
     implementation 'androidx.biometric:biometric:1.1.0'
 
     // Kotlin Coroutines for packet capture
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
-
-    // Import the tun2socks AAR
-    implementation(name: "tun2socks", ext: "aar") {
-        // Exclude duplicate Go runtime classes to avoid "Duplicate class go.Seq" error
-        exclude group: "go"
-    }
-}
-
-// Clean up duplicates in case other transitive deps bring Go classes
-configurations.all {
-    exclude group: "go"
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0'
 }
