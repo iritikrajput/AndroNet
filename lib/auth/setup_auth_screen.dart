@@ -4,7 +4,7 @@ import 'auth_service.dart';
 import 'widgets/pattern_widget.dart';
 
 class SetupAuthScreen extends StatefulWidget {
-  const SetupAuthScreen({Key? key}) : super(key: key);
+  const SetupAuthScreen({super.key});
 
   @override
   State<SetupAuthScreen> createState() => _SetupAuthScreenState();
@@ -126,6 +126,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
   Future<void> _showBiometricSetup() async {
     final authService = Provider.of<AuthenticationService>(context, listen: false);
     final isAvailable = await authService.isBiometricAvailable();
+    if (!mounted) return;
 
     if (!isAvailable) {
       Navigator.of(context).pushReplacementNamed('/');
@@ -156,6 +157,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
           ElevatedButton(
             onPressed: () async {
               await authService.enableBiometric();
+              if (!context.mounted) return;
               Navigator.of(context).pop();
               Navigator.of(context).pushReplacementNamed('/');
             },
@@ -202,7 +204,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
           Container(
             margin: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(12),
             ),
             child: TabBar(
@@ -212,7 +214,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
                 borderRadius: BorderRadius.circular(10),
               ),
               labelColor: Colors.white,
-              unselectedLabelColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              unselectedLabelColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               dividerColor: Colors.transparent,
               tabs: const [
                 Tab(text: 'PIN', icon: Icon(Icons.pin, size: 16)),
@@ -255,7 +257,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
             'Enter a 4-6 digit PIN to secure your app',
             style: TextStyle(
               fontSize: 16,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 32),
@@ -268,7 +270,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
               labelText: 'PIN',
               hintText: 'Enter 4-6 digits',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -286,7 +288,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
               labelText: 'Confirm PIN',
               hintText: 'Re-enter PIN',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -343,7 +345,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
             'Enter a secure password with at least 6 characters',
             style: TextStyle(
               fontSize: 16,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 32),
@@ -354,7 +356,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
               labelText: 'Password',
               hintText: 'Enter password',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -373,7 +375,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
               labelText: 'Confirm Password',
               hintText: 'Re-enter password',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -435,7 +437,7 @@ class _SetupAuthScreenState extends State<SetupAuthScreen>
                 : 'Draw the same pattern to confirm',
             style: TextStyle(
               fontSize: 16,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 32),

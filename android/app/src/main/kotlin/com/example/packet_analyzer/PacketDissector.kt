@@ -11,6 +11,29 @@ import java.nio.charset.StandardCharsets
 object PacketDissector {
     private const val TAG = "PacketDissector"
 
+    // Public DoH resolver hostnames commonly seen as TLS SNI values. Not
+    // exhaustive — self-hosted/enterprise DoH endpoints won't match — but
+    // covers the resolvers a phone is realistically configured against.
+    private val KNOWN_DOH_PROVIDERS = setOf(
+        "cloudflare-dns.com",
+        "mozilla.cloudflare-dns.com",
+        "dns.google",
+        "dns.google.com",
+        "doh.opendns.com",
+        "dns.quad9.net",
+        "doh.cleanbrowsing.org",
+        "dns.adguard.com",
+        "dns-family.adguard.com",
+        "doh.libredns.gr",
+        "doh.dns.sb",
+        "dns.nextdns.io"
+    )
+
+    private fun isKnownDohProvider(sni: String): Boolean {
+        val host = sni.lowercase().removeSuffix(".")
+        return KNOWN_DOH_PROVIDERS.any { host == it || host.endsWith(".$it") }
+    }
+
     /**
      * Dissect a packet and extract application-layer details
      */
@@ -19,28 +42,26 @@ object PacketDissector {
         val destPort = (packetInfo["destinationPort"] as? Int) ?: 0
         val sourcePort = (packetInfo["sourcePort"] as? Int) ?: 0
 
-        // Debug logging for HTTP/HTTPS
-        if (protocol == "HTTP" || protocol == "HTTPS" || destPort == 80 || sourcePort == 80 || destPort == 443 || sourcePort == 443) {
+        if (BuildConfig.DEBUG && (protocol == "HTTP" || protocol == "HTTPS" || destPort == 80 || sourcePort == 80 || destPort == 443 || sourcePort == 443)) {
             Log.d(TAG, "🔍 HTTP/HTTPS packet: protocol=$protocol, destPort=$destPort, sourcePort=$sourcePort, payloadSize=${payload?.size ?: 0}")
         }
 
         if (payload == null || payload.isEmpty()) {
-            if (protocol == "HTTP" || protocol == "HTTPS" || destPort == 80 || sourcePort == 80 || destPort == 443 || sourcePort == 443) {
-                Log.w(TAG, "⚠️ HTTP/HTTPS packet has NO payload! protocol=$protocol")
-            }
             return packetInfo
         }
 
         val enrichedInfo = packetInfo.toMutableMap()
 
-        // Add payload content (both hex and ASCII)
-        // Increase limits to capture more data
-        val payloadHex = payload.joinToString(" ") { byte ->
+        // Add payload content (both hex and ASCII). Slice to the display limit
+        // BEFORE formatting, not after — formatting the full payload (which can be
+        // tens of KB) just to discard most of the resulting string wastes CPU on
+        // every single packet.
+        val payloadHex = payload.take(666).joinToString(" ") { byte ->
             "%02x".format(byte)
-        }.take(2000) // Increased from 500 to 2000 chars
+        } // ~2000 chars max (3 chars/byte)
 
         val payloadAscii = buildString {
-            for (byte in payload.take(1000)) { // Increased from 250 to 1000 bytes
+            for (byte in payload.take(1000)) {
                 val char = byte.toInt() and 0xFF
                 append(if (char in 32..126) char.toChar() else '.')
             }
@@ -49,9 +70,6 @@ object PacketDissector {
         enrichedInfo["payload"] = payloadAscii
         enrichedInfo["payloadHex"] = payloadHex
         enrichedInfo["payloadSize"] = payload.size
-
-        // Log payload info for debugging
-        Log.d(TAG, "📦 Payload extracted: protocol=$protocol, size=${payload.size} bytes, destPort=$destPort, sourcePort=$sourcePort")
 
 
         try {
@@ -79,7 +97,16 @@ object PacketDissector {
                             val destIp = packetInfo["destinationIp"] as? String ?: packetInfo["destinationAddress"] as? String
                             if (destIp != null) {
                                 DomainTracker.recordDnsResolution(sni, destIp)
-                                Log.d(TAG, "🔐 SNI->IP mapping recorded: $sni -> $destIp")
+                            }
+
+                            // DNS-over-HTTPS: an HTTPS connection whose SNI is a known
+                            // public DoH resolver is actually carrying DNS queries, not
+                            // web traffic — relevant to a pentester because DoH is a
+                            // common technique for bypassing on-path DNS monitoring.
+                            // Previously "DoH" only existed as an unreachable entry in
+                            // AnomalyDetector's entropy allowlist; nothing ever produced it.
+                            if (isKnownDohProvider(sni)) {
+                                enrichedInfo["appName"] = "DoH"
                             }
                         }
                     }
@@ -142,10 +169,21 @@ object PacketDissector {
                 }
             }
 
-            // Analyze payload for files and security risks
-            val payloadAnalysis = PayloadAnalyzer.analyzePayload(payload, packetInfo)
-            if (payloadAnalysis.isNotEmpty()) {
-                enrichedInfo["payloadAnalysis"] = payloadAnalysis
+            // Analyze payload for files and security risks — skipped for known-encrypted
+            // traffic, where the payload is ciphertext and file-signature/keyword
+            // scanning can only ever return noise, not signal, while still costing a
+            // full-payload string conversion and scan on every packet.
+            val appName = enrichedInfo["appName"] as? String
+            val isEncrypted = destPort == 443 || sourcePort == 443 ||
+                    destPort == 853 || sourcePort == 853 ||
+                    appName == "HTTPS" || appName == "QUIC/HTTP3" ||
+                    (appName?.contains("TLS", ignoreCase = true) == true)
+
+            if (!isEncrypted) {
+                val payloadAnalysis = PayloadAnalyzer.analyzePayload(payload, packetInfo)
+                if (payloadAnalysis.isNotEmpty()) {
+                    enrichedInfo["payloadAnalysis"] = payloadAnalysis
+                }
             }
 
         } catch (e: Exception) {
@@ -277,7 +315,6 @@ object PacketDissector {
                     val sni = extractSNI(payload)
                     if (sni != null) {
                         result["sni"] = sni
-                        Log.d(TAG, "🌐 SNI extracted from TLS: $sni")
                     }
                 }
             }
@@ -385,8 +422,6 @@ object PacketDissector {
                         resolvedIps.forEach { ip ->
                             DomainTracker.recordDnsResolution(queryName, ip)
                         }
-
-                        Log.d(TAG, "🌐 DNS Resolution: $queryName -> ${resolvedIps.joinToString(", ")}")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not parse DNS answers: ${e.message}")

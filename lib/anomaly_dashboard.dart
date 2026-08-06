@@ -6,8 +6,7 @@ import 'models.dart';
 class AnomalyDashboard extends StatefulWidget {
   final Stream<AnomalyInfo> anomalyStream;
 
-  const AnomalyDashboard({Key? key, required this.anomalyStream})
-    : super(key: key);
+  const AnomalyDashboard({super.key, required this.anomalyStream});
 
   @override
   State<AnomalyDashboard> createState() => _AnomalyDashboardState();

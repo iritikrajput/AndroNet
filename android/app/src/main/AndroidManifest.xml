@@ -71,55 +71,6 @@
             </intent-filter>
         </service>
 
-        <!-- Capture Service (Enhanced VPN capture) -->
-        <service
-            android:name=".CaptureService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:foregroundServiceType="dataSync">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
-
-        <!-- Previous NIO attempt -->
-        <service
-            android:name=".FinalWorkingVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:enabled="false" />
-
-        <!-- Previous complex attempts (disabled) -->
-        <service
-            android:name=".ProductionVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:enabled="false" />
-
-        <!-- Previous implementations (disabled) -->
-        <service
-            android:name=".ProperVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="connectedDevice|dataSync" />
-
-        <!-- Alternative implementations (disabled) -->
-        <service
-            android:name=".CompleteVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="connectedDevice|dataSync" />
-
-        <!-- Legacy services kept for reference but not used -->
-        <service
-            android:name=".PacketVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="connectedDevice|dataSync" />
-
         <service
             android:name=".NetHunterService"
             android:enabled="true"

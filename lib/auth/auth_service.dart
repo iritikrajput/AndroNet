@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -20,10 +21,11 @@ class AuthenticationService extends ChangeNotifier {
   static const String _lockUntilKey = 'lock_until';
   static const String _lastAuthKey = 'last_auth_time';
 
+  // flutter_secure_storage 11+: AES-GCM encryption is on by default for
+  // AndroidOptions() — the old encryptedSharedPreferences flag was removed
+  // because it's no longer optional.
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
-    ),
+    aOptions: AndroidOptions(),
   );
 
   final LocalAuthentication _localAuth = LocalAuthentication();
@@ -94,17 +96,87 @@ class AuthenticationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _hashCredential(String credential) {
-    final bytes = utf8.encode(credential);
-    final digest = sha256.convert(bytes);
-    return digest.toString();
+  // ── Credential hashing (PBKDF2-HMAC-SHA256, salted) ────────────────────
+  //
+  // Previously a bare unsalted SHA-256 digest — trivially precomputable
+  // (all 10,000 4-digit PIN hashes fit in a rainbow table in microseconds),
+  // which matters more than usual here since this app explicitly targets
+  // rooted devices where secure storage is a softer target. Stored format
+  // is "iterations:saltBase64:hashBase64" so the iteration count can be
+  // bumped later without a migration. Legacy unsalted hashes (no ':') are
+  // verified once against the old scheme, then transparently upgraded —
+  // no forced re-setup for existing installs.
+  static const int _pbkdf2Iterations = 120000;
+  static const int _saltLengthBytes = 16;
+  static final Random _secureRandom = Random.secure();
+
+  Uint8List _generateSalt() =>
+      Uint8List.fromList(List<int>.generate(_saltLengthBytes, (_) => _secureRandom.nextInt(256)));
+
+  /// PBKDF2 with HMAC-SHA256, matching RFC 8018. SHA-256 produces exactly
+  /// one 32-byte block, so this only needs the single-block derivation.
+  List<int> _pbkdf2(String credential, List<int> salt, int iterations) {
+    final hmac = Hmac(sha256, utf8.encode(credential));
+    final blockIndex = [0, 0, 0, 1]; // INT_32_BE(1) — first (only) block
+    var u = hmac.convert([...salt, ...blockIndex]).bytes;
+    final result = List<int>.from(u);
+    for (var i = 1; i < iterations; i++) {
+      u = hmac.convert(u).bytes;
+      for (var j = 0; j < result.length; j++) {
+        result[j] ^= u[j];
+      }
+    }
+    return result;
+  }
+
+  bool _constantTimeEquals(String a, String b) {
+    if (a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return diff == 0;
+  }
+
+  String _hashCredentialSalted(String credential) {
+    final salt = _generateSalt();
+    final hash = _pbkdf2(credential, salt, _pbkdf2Iterations);
+    return '$_pbkdf2Iterations:${base64Encode(salt)}:${base64Encode(hash)}';
+  }
+
+  /// The old unsalted scheme — kept only to verify (and then upgrade) hashes
+  /// written before this change.
+  String _hashCredentialLegacy(String credential) => sha256.convert(utf8.encode(credential)).toString();
+
+  /// Verifies [candidate] against [stored], transparently upgrading a
+  /// legacy unsalted hash to the salted format on a successful match via
+  /// [persistUpgraded].
+  Future<bool> _verifyCredential(
+    String stored,
+    String candidate,
+    Future<void> Function(String upgraded) persistUpgraded,
+  ) async {
+    if (!stored.contains(':')) {
+      final matches = _hashCredentialLegacy(candidate) == stored;
+      if (matches) {
+        await persistUpgraded(_hashCredentialSalted(candidate));
+      }
+      return matches;
+    }
+
+    final parts = stored.split(':');
+    if (parts.length != 3) return false;
+    final iterations = int.tryParse(parts[0]);
+    if (iterations == null) return false;
+    final salt = base64Decode(parts[1]);
+    final candidateHash = base64Encode(_pbkdf2(candidate, salt, iterations));
+    return _constantTimeEquals(candidateHash, parts[2]);
   }
 
   Future<bool> setupPin(String pin) async {
     if (pin.length < 4) return false;
 
-    final hashedPin = _hashCredential(pin);
-    await _secureStorage.write(key: _pinKey, value: hashedPin);
+    await _secureStorage.write(key: _pinKey, value: _hashCredentialSalted(pin));
     await _prefs?.setString(_authMethodKey, AuthMethod.pin.toString());
     _currentAuthMethod = AuthMethod.pin;
     return true;
@@ -113,8 +185,7 @@ class AuthenticationService extends ChangeNotifier {
   Future<bool> setupPassword(String password) async {
     if (password.length < 6) return false;
 
-    final hashedPassword = _hashCredential(password);
-    await _secureStorage.write(key: _passwordKey, value: hashedPassword);
+    await _secureStorage.write(key: _passwordKey, value: _hashCredentialSalted(password));
     await _prefs?.setString(_authMethodKey, AuthMethod.password.toString());
     _currentAuthMethod = AuthMethod.password;
     return true;
@@ -124,8 +195,7 @@ class AuthenticationService extends ChangeNotifier {
     if (pattern.length < 4) return false;
 
     final patternString = pattern.join(',');
-    final hashedPattern = _hashCredential(patternString);
-    await _secureStorage.write(key: _patternKey, value: hashedPattern);
+    await _secureStorage.write(key: _patternKey, value: _hashCredentialSalted(patternString));
     await _prefs?.setString(_authMethodKey, AuthMethod.pattern.toString());
     _currentAuthMethod = AuthMethod.pattern;
     return true;
@@ -156,8 +226,12 @@ class AuthenticationService extends ChangeNotifier {
       final storedPin = await _secureStorage.read(key: _pinKey);
       if (storedPin == null) return false;
 
-      final hashedPin = _hashCredential(pin);
-      if (hashedPin == storedPin) {
+      final matches = await _verifyCredential(
+        storedPin,
+        pin,
+        (upgraded) => _secureStorage.write(key: _pinKey, value: upgraded),
+      );
+      if (matches) {
         await _onSuccessfulAuth();
         return true;
       } else {
@@ -177,8 +251,12 @@ class AuthenticationService extends ChangeNotifier {
       final storedPassword = await _secureStorage.read(key: _passwordKey);
       if (storedPassword == null) return false;
 
-      final hashedPassword = _hashCredential(password);
-      if (hashedPassword == storedPassword) {
+      final matches = await _verifyCredential(
+        storedPassword,
+        password,
+        (upgraded) => _secureStorage.write(key: _passwordKey, value: upgraded),
+      );
+      if (matches) {
         await _onSuccessfulAuth();
         return true;
       } else {
@@ -199,8 +277,12 @@ class AuthenticationService extends ChangeNotifier {
       if (storedPattern == null) return false;
 
       final patternString = pattern.join(',');
-      final hashedPattern = _hashCredential(patternString);
-      if (hashedPattern == storedPattern) {
+      final matches = await _verifyCredential(
+        storedPattern,
+        patternString,
+        (upgraded) => _secureStorage.write(key: _patternKey, value: upgraded),
+      );
+      if (matches) {
         await _onSuccessfulAuth();
         return true;
       } else {
@@ -219,10 +301,8 @@ class AuthenticationService extends ChangeNotifier {
     try {
       final bool isAuthenticated = await _localAuth.authenticate(
         localizedReason: 'Access Andronet by CipherSec',
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: true,
-        ),
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
 
       if (isAuthenticated) {

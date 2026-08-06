@@ -7,6 +7,7 @@
 # AndroNet JNI — native methods called from C/C++ must not be renamed
 -keep class com.example.packet_analyzer.ZdtunVpn { *; }
 -keep class com.example.packet_analyzer.LibpcapBridge { *; }
+-keep class com.example.packet_analyzer.PcapWriter { *; }
 -keep class com.example.packet_analyzer.ZdtunVpnService {
     void sendPacketToVpn(byte[]);
     boolean protectSocket(int);
@@ -18,7 +19,6 @@
 
 # Services — must survive shrinking so the OS can start them
 -keep class com.example.packet_analyzer.ZdtunVpnService { *; }
--keep class com.example.packet_analyzer.CaptureService { *; }
 -keep class com.example.packet_analyzer.NetHunterService { *; }
 -keep class com.example.packet_analyzer.MainActivity { *; }
 

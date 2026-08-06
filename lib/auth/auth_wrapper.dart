@@ -5,7 +5,7 @@ import 'login_screen.dart';
 import '../main.dart';
 
 class AuthWrapper extends StatefulWidget {
-  const AuthWrapper({Key? key}) : super(key: key);
+  const AuthWrapper({super.key});
 
   @override
   State<AuthWrapper> createState() => _AuthWrapperState();
@@ -78,7 +78,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 }
 
 class _LoadingScreen extends StatelessWidget {
-  const _LoadingScreen({Key? key}) : super(key: key);
+  const _LoadingScreen();
 
   @override
   Widget build(BuildContext context) {
@@ -114,7 +114,7 @@ class _LoadingScreen extends StatelessWidget {
               'by CipherSec',
               style: TextStyle(
                 fontSize: 16,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
             const SizedBox(height: 16),
@@ -122,7 +122,7 @@ class _LoadingScreen extends StatelessWidget {
               'Initializing Security...',
               style: TextStyle(
                 fontSize: 16,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
             const SizedBox(height: 32),

@@ -93,14 +93,29 @@ class PacketAnalysisManager(private val context: Context) {
         }
 
         isAnalyzing = false
-        Log.i(TAG, "🛑 Stopping packet analysis...")
+        Log.i(TAG, "Stopping packet analysis...")
 
-        // Stop PCAP export if running
         if (isPcapExporting) {
-            stopPcapExport()
+            finalizePcap()
         }
 
         managerScope.cancel()
+    }
+
+    /**
+     * Commit 13 — graceful finalization called from onTaskRemoved / onDestroy.
+     * Ensures ring buffer is drained, section_length patched, fsync issued.
+     */
+    fun finalizePcap() {
+        if (!isPcapExporting) return
+        Log.i(TAG, "Finalizing PCAP file (graceful shutdown)")
+        try {
+            PcapWriter.stopCapture()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during PCAP finalization: ${e.message}")
+        } finally {
+            isPcapExporting = false
+        }
     }
 
     /**
@@ -131,17 +146,12 @@ class PacketAnalysisManager(private val context: Context) {
             val destIp = (enrichedPacket["destinationAddress"] ?: enrichedPacket["destinationIp"]) as? String
             val sourceIp = (enrichedPacket["sourceAddress"] ?: enrichedPacket["sourceIp"]) as? String
 
-            Log.d(TAG, "🔍 Looking up domain for destIp=$destIp, sourceIp=$sourceIp")
-
             // Check if destination IP has a known domain
             if (destIp != null) {
                 val domain = DomainTracker.getDomainForIp(destIp)
                 if (domain != null) {
                     finalPacket["domain"] = domain
                     finalPacket["domainFriendly"] = DomainTracker.getFriendlyName(domain)
-                    Log.d(TAG, "✅ Domain found for $destIp: $domain (${finalPacket["domainFriendly"]})")
-                } else {
-                    Log.d(TAG, "❌ No domain found for $destIp")
                 }
             }
 
@@ -150,7 +160,6 @@ class PacketAnalysisManager(private val context: Context) {
                 val sourceDomain = DomainTracker.getDomainForIp(sourceIp)
                 if (sourceDomain != null) {
                     finalPacket["sourceDomain"] = sourceDomain
-                    Log.d(TAG, "✅ Source domain found for $sourceIp: $sourceDomain")
                 }
             }
 
@@ -161,7 +170,14 @@ class PacketAnalysisManager(private val context: Context) {
             // 4. PCAP export (if active)
             if (isPcapExporting && rawPacket != null) {
                 val timestamp = (packetInfo["timestamp"] as? Long) ?: System.currentTimeMillis()
-                PcapWriter.writePacket(rawPacket, timestamp)
+                val anomalyScore = (finalPacket["anomalyScore"] as? Double) ?: 0.0
+                if (anomalyScore >= 0.5) {
+                    // Annotate flagged packets with EPB option 2988 so Wireshark shows them
+                    val annotation = "anomaly_score=%.2f".format(anomalyScore)
+                    PcapWriter.writeAnnotatedPacket(rawPacket, timestamp, annotation)
+                } else {
+                    PcapWriter.writePacket(rawPacket, timestamp)
+                }
             }
 
             // 5. Track for bandwidth calculation
@@ -175,6 +191,56 @@ class PacketAnalysisManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error processing packet: ${e.message}")
             return packetInfo
+        }
+    }
+
+    /**
+     * Commit 12 — detect the active capture interface and its link-layer type.
+     * VPN mode uses tun0 (Raw IP, linktype 101); NetHunter uses wlan0/rmnet0 (Ethernet, linktype 1).
+     */
+    private fun detectCaptureInterface(): Pair<String, Int> {
+        val preferenceOrder = listOf("tun0", "wlan0", "wlan1", "rmnet0", "rmnet_data0", "eth0")
+        return try {
+            val activeNames = java.net.NetworkInterface.getNetworkInterfaces()
+                ?.toList()
+                ?.filter { it.isUp && !it.isLoopback }
+                ?.map { it.name }
+                ?: emptyList()
+            for (iface in preferenceOrder) {
+                if (iface in activeNames) {
+                    val linktype = if (iface == "tun0") 101 else 1
+                    Log.i(TAG, "Capture interface: $iface (linktype=$linktype)")
+                    return Pair(iface, linktype)
+                }
+            }
+            Pair("tun0", 101)
+        } catch (e: Exception) {
+            Log.e(TAG, "Interface detection error: ${e.message}")
+            Pair("tun0", 101)
+        }
+    }
+
+    /**
+     * Commit 10 — expose pcapng writer stats to Flutter MethodChannel.
+     */
+    fun getPcapStats(): Map<String, Any> {
+        return try {
+            val native = PcapWriter.getStats()
+            val filePath = native["filepath"] as? String ?: ""
+            val fileSize = if (filePath.isNotEmpty()) File(filePath).length() else 0L
+            mapOf(
+                "currentFilePath"     to filePath,
+                "currentFileSizeMB"   to String.format("%.2f", fileSize / (1024.0 * 1024.0)),
+                "totalPacketsWritten" to (native["packetCount"] ?: 0),
+                "droppedPackets"      to (native["droppedPackets"] ?: 0),
+                "rotationCount"       to (native["rotationCount"] ?: 0),
+                "captureStartTime"    to (native["captureStartTime"] ?: 0L),
+                "currentFileStartTime" to (native["currentFileStartTime"] ?: 0L),
+                "isExporting"         to isPcapExporting
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting PCAP stats: ${e.message}")
+            mapOf("isExporting" to isPcapExporting)
         }
     }
 
@@ -196,7 +262,8 @@ class PacketAnalysisManager(private val context: Context) {
             val pcapFilename = filename ?: PcapWriter.generateFilename()
             val outputPath = File(andronetDir, pcapFilename).absolutePath
 
-            val success = PcapWriter.startCapture(outputPath, linktype = 101) // Raw IP
+            val (ifName, linktype) = detectCaptureInterface()
+            val success = PcapWriter.startCapture(outputPath, linktype = linktype, ifName = ifName)
 
             if (success) {
                 isPcapExporting = true
@@ -417,13 +484,10 @@ class PacketAnalysisManager(private val context: Context) {
             }
 
             if (payloadStart >= packet.size) {
-                Log.d(TAG, "⚠️ No payload: payloadStart=$payloadStart >= packetSize=${packet.size}, protocol=$protocol, transportProtocol=$transportProtocol")
                 return null
             }
 
-            val extractedPayload = packet.copyOfRange(payloadStart, packet.size)
-            Log.d(TAG, "✅ Payload extracted: size=${extractedPayload.size} bytes, protocol=$protocol, transportProtocol=$transportProtocol")
-            return extractedPayload
+            return packet.copyOfRange(payloadStart, packet.size)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error extracting payload: ${e.message}")

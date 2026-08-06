@@ -403,9 +403,15 @@ object SignatureDatabase {
      */
     fun matchSignatures(packetInfo: Map<String, Any>, payload: ByteArray?): List<SignatureMatch> {
         val matches = mutableListOf<SignatureMatch>()
+        // Decode once per packet — with 18 signatures, several of them
+        // PayloadContains, each used to independently re-decode the same
+        // bytes to a lowercase string.
+        val payloadStr = if (payload != null && payload.isNotEmpty()) {
+            String(payload, Charsets.ISO_8859_1).lowercase()
+        } else null
 
         for (signature in signatures) {
-            if (matchPattern(signature.pattern, packetInfo, payload)) {
+            if (matchPattern(signature.pattern, packetInfo, payload, payloadStr)) {
                 matches.add(
                     SignatureMatch(
                         signature = signature,
@@ -418,22 +424,25 @@ object SignatureDatabase {
         return matches
     }
 
-    private fun matchPattern(pattern: Pattern, packetInfo: Map<String, Any>, payload: ByteArray?): Boolean {
+    private fun matchPattern(
+        pattern: Pattern,
+        packetInfo: Map<String, Any>,
+        payload: ByteArray?,
+        payloadStr: String?
+    ): Boolean {
         return when (pattern) {
-            is Pattern.PayloadContains -> matchPayloadContains(pattern, payload)
+            is Pattern.PayloadContains -> matchPayloadContains(pattern, payloadStr)
             is Pattern.HeaderPattern -> matchHeaderPattern(pattern, packetInfo)
             is Pattern.PortPattern -> matchPortPattern(pattern, packetInfo)
             is Pattern.IpPattern -> matchIpPattern(pattern, packetInfo)
             is Pattern.DnsPattern -> matchDnsPattern(pattern, packetInfo)
             is Pattern.UrlPattern -> matchUrlPattern(pattern, packetInfo)
-            is Pattern.CompositePattern -> matchCompositePattern(pattern, packetInfo, payload)
+            is Pattern.CompositePattern -> matchCompositePattern(pattern, packetInfo, payload, payloadStr)
         }
     }
 
-    private fun matchPayloadContains(pattern: Pattern.PayloadContains, payload: ByteArray?): Boolean {
-        if (payload == null || payload.isEmpty()) return false
-
-        val payloadStr = String(payload, Charsets.ISO_8859_1).lowercase()
+    private fun matchPayloadContains(pattern: Pattern.PayloadContains, payloadStr: String?): Boolean {
+        if (payloadStr == null) return false
 
         return pattern.bytes.any { searchBytes ->
             val searchStr = String(searchBytes, Charsets.ISO_8859_1).lowercase()
@@ -477,10 +486,11 @@ object SignatureDatabase {
     private fun matchCompositePattern(
         pattern: Pattern.CompositePattern,
         packetInfo: Map<String, Any>,
-        payload: ByteArray?
+        payload: ByteArray?,
+        payloadStr: String?
     ): Boolean {
         val results = pattern.patterns.map { subPattern ->
-            matchPattern(subPattern, packetInfo, payload)
+            matchPattern(subPattern, packetInfo, payload, payloadStr)
         }
 
         return if (pattern.matchAll) {

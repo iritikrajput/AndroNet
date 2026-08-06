@@ -43,16 +43,7 @@ class NetHunterService : Service() {
         createNotificationChannel()
     }
 
-    private fun isRooted(): Boolean {
-        return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-            val result = process.inputStream.bufferedReader().readLine() ?: ""
-            process.destroy()
-            result.contains("uid=0")
-        } catch (e: Exception) {
-            false
-        }
-    }
+    private fun isRooted(): Boolean = RootChecker.isRooted()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
@@ -212,9 +203,25 @@ class NetHunterService : Service() {
         }
     }
 
+    // Commit 13 — app swiped from recents while service is running
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i(TAG, "Task removed — finalizing PCAP before death")
+        try {
+            PacketAnalysisManager.getInstance().finalizePcap()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error finalizing PCAP on task removal: ${e.message}")
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        Log.i(TAG, "🔚 NetHunter Service destroyed")
+        Log.i(TAG, "NetHunter Service destroyed")
+        try {
+            PacketAnalysisManager.getInstance().finalizePcap()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error finalizing PCAP: ${e.message}")
+        }
         stopLibpcapCapture()
     }
 }
