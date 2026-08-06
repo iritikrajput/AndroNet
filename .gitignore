@@ -71,7 +71,9 @@ scripts/*.log
 *.ipa
 
 # Release signing — never commit the real keystore or its passwords.
-# See android/key.properties.example for the template.
-/android/key.properties
+# See android/key.properties.example for the template. Unanchored (not
+# /android/key.properties) so a copy left at the repo root or anywhere else
+# is still caught.
+key.properties
 *.jks
 *.keystore
