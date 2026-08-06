@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
+import 'package:share_plus/share_plus.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_wrapper.dart';
 import 'auth/login_screen.dart';
@@ -932,6 +933,10 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
+  // PCAP recording (independent of capture)
+  bool _isPcapRecording = false;
+  String _lastPcapPath = ''; // persists after recording stops so share always works
+
   // Performance optimization
   Timer? _debounceTimer;
   static const int _maxPackets = 1500;
@@ -1350,6 +1355,8 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
 
   Future<void> _stopCapture() async {
     if (_isCaptureStarting) return;
+    // Stop PCAP recording first so the file is finalized cleanly
+    if (_isPcapRecording) await _stopPcapRecording();
     // COMMIT 11: cancel calibration immediately when capture stops
     _calibrationTimer?.cancel();
     setState(() {
@@ -1397,6 +1404,66 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
         Colors.red,
         Icons.error,
       );
+    }
+  }
+
+  // ── PCAP recording (independent of packet capture) ───────────────────────
+
+  Future<void> _startPcapRecording() async {
+    if (_isPcapRecording) return;
+    if (!_isCapturing) {
+      _showSnackBar(
+        'Start packet capture first, then record',
+        Colors.orange,
+        Icons.warning_amber,
+      );
+      return;
+    }
+    try {
+      final result = await _channel.invokeMethod('startPcapExport');
+      if (result != null) {
+        setState(() => _isPcapRecording = true);
+        _showSnackBar('PCAP recording started', Colors.green, Icons.fiber_manual_record);
+      }
+    } catch (e) {
+      _showSnackBar('Failed to start PCAP: $e', Colors.red, Icons.error);
+    }
+  }
+
+  Future<void> _stopPcapRecording() async {
+    if (!_isPcapRecording) return;
+    try {
+      // Capture path BEFORE nativeClose clears it
+      final path = await _channel.invokeMethod<String>('getCurrentPcapPath') ?? '';
+      await _channel.invokeMethod('stopPcapExport');
+      setState(() {
+        _isPcapRecording = false;
+        if (path.isNotEmpty) _lastPcapPath = path;
+      });
+      _showSnackBar('PCAP saved', Colors.green, Icons.check_circle);
+    } catch (e) {
+      setState(() => _isPcapRecording = false);
+    }
+  }
+
+
+  Future<void> _sharePcapFile() async {
+    // If actively recording, stop first so the file is complete
+    if (_isPcapRecording) await _stopPcapRecording();
+
+    final path = _lastPcapPath;
+    if (path.isEmpty) {
+      _showSnackBar(
+        'No PCAP file yet — press the record button first',
+        Colors.orange,
+        Icons.warning_amber,
+      );
+      return;
+    }
+    try {
+      await Share.shareXFiles([XFile(path)], subject: 'AndroNet capture');
+    } catch (e) {
+      _showSnackBar('Share failed: $e', Colors.red, Icons.error);
     }
   }
 
@@ -1654,6 +1721,25 @@ class _PacketAnalyzerScreenState extends State<PacketAnalyzerScreen>
               );
             },
             tooltip: 'View Anomalies',
+          ),
+
+        // PCAP record button — independent of packet capture toggle
+        if (_isCapturing)
+          IconButton(
+            icon: Icon(
+              _isPcapRecording ? Icons.stop_circle : Icons.fiber_manual_record,
+              color: _isPcapRecording ? Colors.red : Colors.red.shade300,
+            ),
+            onPressed: _isPcapRecording ? _stopPcapRecording : _startPcapRecording,
+            tooltip: _isPcapRecording ? 'Stop PCAP recording' : 'Start PCAP recording',
+          ),
+
+        // Share button — visible once a file exists
+        if (_lastPcapPath.isNotEmpty || _isPcapRecording)
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _sharePcapFile,
+            tooltip: 'Share PCAP file',
           ),
 
         // Debug test anomaly button

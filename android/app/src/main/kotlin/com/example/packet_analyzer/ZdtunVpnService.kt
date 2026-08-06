@@ -561,11 +561,22 @@ class ZdtunVpnService : VpnService() {
         super.onRevoke()
     }
 
+    // Commit 13 — app swiped from recents while service is running
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i(TAG, "Task removed — finalizing PCAP before death")
+        try {
+            PacketAnalysisManager.getInstance().finalizePcap()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error finalizing PCAP on task removal: ${e.message}")
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         Log.i(TAG, "Stopping ZdtunVpnService")
         isRunning = false
 
-        // Stop PacketAnalysisManager
+        // Stop PacketAnalysisManager (internally calls finalizePcap)
         try {
             PacketAnalysisManager.getInstance().stopAnalysis()
             Log.i(TAG, "PacketAnalysisManager stopped")

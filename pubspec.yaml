@@ -50,6 +50,9 @@ dependencies:
   # Charts for analytics
   fl_chart: ^0.70.0
 
+  # PCAP share/export
+  share_plus: ^10.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

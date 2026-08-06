@@ -30,6 +30,23 @@ typedef struct {
 } pcap_context_t;
 
 static pcap_context_t g_pcap_ctx = {0};
+static char g_pending_filter[512] = "";
+
+static jboolean apply_bpf_filter(pcap_t *handle, const char *filter) {
+    struct bpf_program fp;
+    if (pcap_compile(handle, &fp, filter, 1, PCAP_NETMASK_UNKNOWN) == -1) {
+        LOGE("BPF compile failed: %s", pcap_geterr(handle));
+        return JNI_FALSE;
+    }
+    if (pcap_setfilter(handle, &fp) == -1) {
+        LOGE("BPF setfilter failed: %s", pcap_geterr(handle));
+        pcap_freecode(&fp);
+        return JNI_FALSE;
+    }
+    pcap_freecode(&fp);
+    LOGI("BPF filter applied: %s", filter);
+    return JNI_TRUE;
+}
 
 // Protocol detection function
 const char* get_app_name_from_port(const char* protocol, int port) {
@@ -308,6 +325,13 @@ Java_com_example_packet_1analyzer_LibpcapBridge_nativeInit(JNIEnv *env, jobject 
         return JNI_FALSE;
     }
 
+    // Apply any filter that was set before init
+    if (g_pending_filter[0] != '\0') {
+        if (apply_bpf_filter(g_pcap_ctx.handle, g_pending_filter) == JNI_FALSE) {
+            LOGE("Deferred BPF filter failed — continuing without filter");
+        }
+    }
+
     LOGI("Libpcap initialized successfully on %s", g_pcap_ctx.interface);
     return JNI_TRUE;
 }
@@ -412,4 +436,30 @@ Java_com_example_packet_1analyzer_LibpcapBridge_nativeGetInterfaces(JNIEnv *env,
 
     pcap_freealldevs(alldevs);
     return result;
+}
+
+// JNI: Set BPF packet filter (call after nativeInit, before nativeStartCapture)
+JNIEXPORT jboolean JNICALL
+Java_com_example_packet_1analyzer_LibpcapBridge_nativeSetPacketFilter(
+        JNIEnv *env, jobject thiz, jstring filter_expr) {
+    const char *filter = (*env)->GetStringUTFChars(env, filter_expr, NULL);
+    if (!filter) return JNI_FALSE;
+
+    if (filter[0] == '\0') {
+        // Empty string = clear filter
+        g_pending_filter[0] = '\0';
+        (*env)->ReleaseStringUTFChars(env, filter_expr, filter);
+        LOGI("BPF filter cleared");
+        return JNI_TRUE;
+    }
+
+    snprintf(g_pending_filter, sizeof(g_pending_filter), "%s", filter);
+    (*env)->ReleaseStringUTFChars(env, filter_expr, filter);
+
+    if (!g_pcap_ctx.handle) {
+        LOGI("BPF filter stored, will apply on nativeInit: %s", g_pending_filter);
+        return JNI_TRUE;
+    }
+
+    return apply_bpf_filter(g_pcap_ctx.handle, g_pending_filter);
 }

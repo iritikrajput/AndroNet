@@ -244,6 +244,15 @@ class MainActivity : FlutterFragmentActivity() {
                     PacketAnalysisManager.getInstance().stopPcapExport()
                     result.success("PCAP export stopped")
                 }
+                // Commit 10 — PCAP stats and path exposed to Flutter
+                "getPcapStats" -> {
+                    result.success(PacketAnalysisManager.getInstance().getPcapStats())
+                }
+                "getCurrentPcapPath" -> {
+                    val stats = PacketAnalysisManager.getInstance().getPcapStats()
+                    val path = stats["currentFilePath"] as? String ?: ""
+                    result.success(path)
+                }
                 // === NEW ANOMALY DETECTION METHODS ===
                 "getAnomalyStatistics" -> {
                     val stats = mapOf(
