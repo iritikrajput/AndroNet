@@ -65,7 +65,7 @@ jobs:
           expected=$(keytool -list -v -keystore android/app/release-keystore.jks \
             -storepass "${{ secrets.KEYSTORE_PASSWORD }}" 2>/dev/null | grep 'SHA256:' | head -1 | awk '{print $2}')
           actual=$("$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            | grep 'Signer #1 certificate SHA-256 digest' | awk '{print $NF}')
+            | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}')
           echo "Expected (our release keystore): $expected"
           echo "Actual (built APK signer):       $actual"
           if [ -z "$actual" ] || [ "$(echo "$expected" | tr -d ':' | tr 'A-F' 'a-f')" != "$(echo "$actual" | tr -d ':' | tr 'A-F' 'a-f')" ]; then
