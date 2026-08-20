@@ -45,7 +45,7 @@ dependencies:
   # Storage and permissions
   sqflite: ^2.4.0
   path_provider: ^2.1.5
-  permission_handler: ^13.0.0
+  permission_handler: ^13.0.1
 
   # Charts for analytics
   fl_chart: ^1.2.0
