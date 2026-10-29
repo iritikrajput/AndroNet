@@ -39,7 +39,7 @@ dependencies:
   local_auth: ^3.0.2
   flutter_secure_storage: ^11.0.0
   shared_preferences: ^2.3.3
-  crypto: ^3.0.3
+  crypto: ^3.0.8
   provider: ^6.1.5
 
   # Storage and permissions
